@@ -253,7 +253,7 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 | Thành viên | Vai | Issue |
 |---|---|---|
 | **Đỗ Chí Thành** (@toilact) — trưởng nhóm | B: Agent, rules, Revision (đường găng) + Goong Matrix + golden set + demo | #17, #22, #24, #25, #26, #18, #7, #27, #6, #29 |
-| **Đặng Trần Minh Nhật** (@MinhATT) | A: Client React, bản đồ, UI mới, giọng nói phía client, recap | #2, #3, #4, #16, #23, #8, #9, #28 |
+| **Đặng Trần Minh Nhật** (@minhatt1901) | A: Client React, bản đồ, UI mới, giọng nói phía client, recap | #2, #3, #4, #16, #23, #8, #9, #28 |
 | **Nguyễn Thanh Tùng** (@nguyentung206) | D: Inspiration Photo, PDF, Google login, quên mật khẩu, demo_cache, đóng gói | #10, #11, #12, #13, #14, #15 |
 | **Nguyễn Duy Quân** (@skyduyquan2-sudo) | C: Dữ liệu Place (script thu thập + 3 Destination) | #5, #19, #20, #21 |
 
