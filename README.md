@@ -22,10 +22,10 @@ Người phụ trách và danh sách issue: PRD §12. Mỗi vai là người rev
 
 | Vai | Phụ trách | Vùng code |
 |---|---|---|
-| A — Tùng | Client React, bản đồ/animation, UI mới | `client/`, `desktop/` |
+| A — Nhật | Client React, bản đồ/animation, UI mới | `client/`, `desktop/` |
 | B — Thành | Agent, tools, rules, Revision | `server/app/agent.py`, `rules.py`, `trips.py`, `domain.py` |
 | C — Quân | Dữ liệu Place, import, pgvector, Goong Matrix | `data/places/`, `server/scripts/`, `server/app/places.py` |
-| D — Nhật | Auth, voice/vision/recap/PDF, đóng gói, demo_cache | `server/app/auth.py`, `forecast.py`, `llm.py`, `docker-compose.yml` |
+| D — Tùng | Auth, voice/vision/recap/PDF, đóng gói, demo_cache | `server/app/auth.py`, `forecast.py`, `llm.py`, `docker-compose.yml` |
 
 ## Quy trình làm việc
 
