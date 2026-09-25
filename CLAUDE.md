@@ -1,6 +1,6 @@
 # Travility
 
-Desktop app du lịch + bản đồ cho người Việt, AI Trip Planner làm lõi. Spec: `docs/superpowers/specs/2026-09-25-travility-design.md`.
+Desktop app du lịch + bản đồ cho người Việt, AI Trip Planner làm lõi. PRD (yêu cầu, lộ trình, phân vai): `docs/PRD.md`. Spec kỹ thuật: `docs/superpowers/specs/2026-09-25-travility-design.md`. Hiện trạng code: `docs/2026-09-25-hien-trang-app.md`.
 
 ## Agent skills
 

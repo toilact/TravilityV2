@@ -1,5 +1,7 @@
 # Travility — Design Spec (2026-09-25, rev 2)
 
+> Spec gốc, giữ làm thiết kế kỹ thuật (Stack, Kiến trúc). Yêu cầu sản phẩm, lộ trình, phân vai, thứ tự cắt: xem [docs/PRD.md](../../PRD.md) — khi mâu thuẫn, PRD thắng.
+
 Thuật ngữ in đậm theo [CONTEXT.md](../../../CONTEXT.md). Quyết định kiến trúc ở [docs/adr/](../../adr/).
 
 ## Context
@@ -16,7 +18,7 @@ Thuật ngữ in đậm theo [CONTEXT.md](../../../CONTEXT.md). Quyết định 
 
 **Tài khoản:** đăng ký/đăng nhập email + mật khẩu, đăng nhập Google, quên mật khẩu, **Traveler Profile** (chép vào Trip mới). Trip riêng tư, không chia sẻ trong app.
 
-**Thứ tự cắt nếu trễ:** Google login + quên mật khẩu → cinematic recap → vision. Không cắt: lõi, Revision, email/mật khẩu.
+**Thứ tự cắt nếu trễ:** xem PRD §13.
 
 ## Quy tắc nghiệp vụ (code thực thi, không phải prompt)
 - AI chỉ tham chiếu Place trả về từ tool; Place lạ → từ chối, AI làm lại 1 lần (ADR-0001).
@@ -71,11 +73,8 @@ Place: tọa độ, loại (có loại chỗ ở), Tag, giá, giờ mở theo th
 - Tài khoản đầy đủ làm tiến độ sát → theo thứ tự cắt ở trên.
 - Secrets (`.env`: LLM key, Goong key, Google OAuth, SMTP, JWT secret) không commit.
 
-## Phân công gợi ý (4 người)
-A: Client React + map/animation · B: Agent + tools + rules · C: Dữ liệu Place + import + pgvector search · D: Auth + voice/vision/recap/PDF + đóng gói + demo_cache.
-
-## Mốc (10 tuần)
-T1–2 docker compose (FastAPI+Postgres), client pywebview hiện map Goong, email/mật khẩu, Place 1 Destination · T3–4 agent lõi end-to-end + rules/Conflict · T5–6 Revision + Pinned + voice · T7 Inspiration Photo + Google login/quên mật khẩu · T8 recap/PDF · T9 chuyển OpenAI, golden set, polish · T10 kịch bản demo, đóng gói.
+## Phân công & Mốc
+Xem PRD §12 (4 vai A–D, lộ trình 10 tuần cập nhật).
 
 ## Verification
 - `pytest` cho rules: tổng chi phí khớp, Conflict đúng (vượt Budget, giờ đóng cửa, mưa + ngoài trời), Revision không đụng Pinned Stop, Place lạ bị từ chối.

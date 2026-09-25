@@ -1,6 +1,8 @@
 # Plan 1 — Nền tảng + AI Trip Planner lõi — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Trạng thái: ✅ hoàn thành 2026-09-25** trên nhánh `feat/plan-1-core` (13/13 task, 58 test server + 2 test client pass).
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** User đăng ký/đăng nhập, gõ "Đi Đà Lạt 2 ngày, 3 triệu, thích cafe chill", thấy AI tìm Place live trên bản đồ Goong, rồi nhận Itinerary (Stop, Leg, chi phí, Conflict) trên timeline + tuyến đường, camera bay qua từng Stop — trong cửa sổ desktop pywebview.
 
@@ -10,11 +12,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-25-travility-design.md` · Glossary: `CONTEXT.md` · ADR: `docs/adr/`
 
-**Roadmap (các plan sau, viết khi plan trước xong):**
-- Plan 2 — Revision + Pinned Stop + undo phiên bản + Traveler Profile
-- Plan 3 — Giọng nói (STT/TTS) + Inspiration Photo → Suggestion
-- Plan 4 — Google login + quên mật khẩu + cinematic recap + xuất PDF
-- Plan 5 — demo_cache, golden set 2 provider, đóng gói PyInstaller, dữ liệu đủ 3 Destination
+**Roadmap:** các plan sau bám theo lộ trình trong [docs/PRD.md §12](../../PRD.md#12-lộ-trình--phân-vai).
 
 ## Global Constraints
 
@@ -77,7 +75,7 @@ desktop/  pyproject.toml  main.py  pywebview
 **Interfaces:**
 - Produces: `app.config.settings` (fields `database_url, jwt_secret, llm_base_url, llm_api_key, llm_model, embed_base_url, embed_api_key, embed_model`); `app.db.connect(url: str | None = None) -> psycopg.Connection` (dict rows, autocommit, pgvector registered); `app.db.apply_schema(conn) -> None`; `app.db.get_conn()` FastAPI dependency; pytest fixture `conn` (DB test sạch mỗi test); `app.main.app`.
 
-- [ ] **Step 1: Tạo Docker Compose + DB test**
+- [x] **Step 1: Tạo Docker Compose + DB test**
 
 `docker-compose.yml`:
 ```yaml
@@ -117,7 +115,7 @@ CREATE DATABASE travility_test;
 Run: `docker compose up -d db && docker compose ps`
 Expected: `db` trạng thái `healthy`.
 
-- [ ] **Step 2: Tạo project Python**
+- [x] **Step 2: Tạo project Python**
 
 `server/pyproject.toml`:
 ```toml
@@ -164,7 +162,7 @@ EMBED_MODEL=text-embedding-3-small
 Run: `cd server && cp .env.example .env && uv sync`
 Expected: tạo `.venv` và `uv.lock`, không lỗi.
 
-- [ ] **Step 3: Config, DB, schema**
+- [x] **Step 3: Config, DB, schema**
 
 `server/app/__init__.py`: file rỗng.
 
@@ -274,7 +272,7 @@ def get_conn():
         conn.close()
 ```
 
-- [ ] **Step 4: App FastAPI + test health**
+- [x] **Step 4: App FastAPI + test health**
 
 `server/app/main.py`:
 ```python
@@ -343,12 +341,12 @@ def test_schema_creates_tables(conn):
     assert {r["table_name"] for r in rows} >= {"users", "destinations", "places", "trips", "itineraries"}
 ```
 
-- [ ] **Step 5: Chạy test**
+- [x] **Step 5: Chạy test**
 
 Run: `cd server && uv run pytest -v`
 Expected: 2 passed.
 
-- [ ] **Step 6: Dockerfile + chạy api trong compose**
+- [x] **Step 6: Dockerfile + chạy api trong compose**
 
 `server/Dockerfile`:
 ```dockerfile
@@ -364,7 +362,7 @@ CMD ["uv", "run", "--no-dev", "uvicorn", "app.main:app", "--host", "0.0.0.0", "-
 Run: `docker compose up -d --build api && curl -s localhost:8000/health`
 Expected: `{"ok":true}`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add docker-compose.yml docker server
@@ -381,7 +379,7 @@ git commit -m "feat(server): FastAPI + Postgres/pgvector skeleton with test DB"
 **Interfaces:**
 - Produces (`app.domain`): `TAGS: set[str]`, `KINDS: tuple[str, ...]`, `WEEKDAYS: list[str]`, `PACE_STOPS: dict[str, tuple[int,int]]`, `PACE_HOURS: dict[str, tuple[str,str]]`, models `Trip`, `Place`, `DraftStop`, `DraftDay`, `Draft`, `Stop`, `Leg`, `Day`, `Conflict`, `Itinerary` (fields bên dưới).
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_domain.py`:
 ```python
@@ -414,12 +412,12 @@ def test_draft_rejects_bad_time():
         )
 ```
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_domain.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.domain'`
 
-- [ ] **Step 3: Viết `domain.py`**
+- [x] **Step 3: Viết `domain.py`**
 
 `server/app/domain.py`:
 ```python
@@ -531,12 +529,12 @@ class Itinerary(BaseModel):
     summary: str = ""
 ```
 
-- [ ] **Step 4: Chạy test**
+- [x] **Step 4: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_domain.py -v`
 Expected: 5 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/domain.py server/tests/test_domain.py
@@ -554,7 +552,7 @@ git commit -m "feat(server): domain models for Trip, Place, Itinerary"
 - Consumes: `connect`, `apply_schema` (Task 1); `TAGS`, `KINDS`, `WEEKDAYS` (Task 2).
 - Produces: `app.llm.EMBED_DIM = 768`, `app.llm.embed(texts: list[str]) -> list[list[float]]`, `app.llm.chat_client() -> openai.OpenAI`; `scripts.import_places.import_file(conn, path, embed_fn) -> int`; test helpers `unit_vec(i) -> list[float]`, `add_place(conn, **kw) -> int`, `ALL_DAY: dict`.
 
-- [ ] **Step 1: `llm.py`**
+- [x] **Step 1: `llm.py`**
 
 `server/app/llm.py`:
 ```python
@@ -575,7 +573,7 @@ def embed(texts: list[str]) -> list[list[float]]:
     return [d.embedding for d in r.data]
 ```
 
-- [ ] **Step 2: Test helpers**
+- [x] **Step 2: Test helpers**
 
 `server/tests/helpers.py`:
 ```python
@@ -608,7 +606,7 @@ def add_place(conn, name="Place", kind="tham-quan", tags=(), price=0, lat=11.94,
     ).fetchone()["id"]
 ```
 
-- [ ] **Step 3: Viết test import**
+- [x] **Step 3: Viết test import**
 
 `server/tests/test_import_places.py`:
 ```python
@@ -655,12 +653,12 @@ def test_expand_daily_hours():
     assert expand_hours({"daily": ["07:00", "22:00"], "mon": None})["mon"] is None
 ```
 
-- [ ] **Step 4: Chạy để thấy fail**
+- [x] **Step 4: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_import_places.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'scripts'`
 
-- [ ] **Step 5: Viết script import**
+- [x] **Step 5: Viết script import**
 
 `server/scripts/import_places.py`:
 ```python
@@ -729,12 +727,12 @@ if __name__ == "__main__":
             print(f.name, import_file(conn, f, llm.embed))
 ```
 
-- [ ] **Step 6: Chạy test**
+- [x] **Step 6: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_import_places.py -v`
 Expected: 3 passed.
 
-- [ ] **Step 7: Dữ liệu Đà Lạt khởi đầu**
+- [x] **Step 7: Dữ liệu Đà Lạt khởi đầu**
 
 Tọa độ dưới đây là **xấp xỉ** — người phụ trách dữ liệu (C) phải kiểm lại từng điểm trên bản đồ Goong trước khi commit, và bổ sung dần đến 150–300 Place (cần thêm Place `an-chay`, homestay giá rẻ `gia-re` kind `cho-o`, quán ăn tối).
 
@@ -760,7 +758,7 @@ Tọa độ dưới đây là **xấp xỉ** — người phụ trách dữ li�
 Run (cần `EMBED_API_KEY` trong `server/.env`): `cd server && uv run python -m scripts.import_places ../data/places`
 Expected: `da-lat.json 10`
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add server/app/llm.py server/scripts server/tests/helpers.py server/tests/test_import_places.py data
@@ -778,7 +776,7 @@ git commit -m "feat(data): Place import script with embeddings + Da Lat seed"
 - Consumes: `Place` (Task 2); `add_place`, `unit_vec` (Task 3).
 - Produces: `search_places(conn, destination: str, query_vec: list[float], kind: str | None = None, must_have_tags: list[str] = (), exclude_tags: list[str] = (), limit: int = 8) -> list[Place]`; `get_places(conn, ids: list[int]) -> dict[int, Place]`; `list_destinations(conn) -> list[dict]` (keys `slug, name, lat, lon`).
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_places.py`:
 ```python
@@ -813,12 +811,12 @@ def test_get_places_and_destinations(conn):
     assert list_destinations(conn)[0]["slug"] == "da-lat"
 ```
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_places.py -v`
 Expected: FAIL — `No module named 'app.places'`
 
-- [ ] **Step 3: Viết `places.py`**
+- [x] **Step 3: Viết `places.py`**
 
 `server/app/places.py`:
 ```python
@@ -854,12 +852,12 @@ def list_destinations(conn) -> list[dict]:
     return conn.execute("SELECT slug, name, lat, lon FROM destinations ORDER BY name").fetchall()
 ```
 
-- [ ] **Step 4: Chạy test**
+- [x] **Step 4: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_places.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/places.py server/tests/test_places.py
@@ -877,7 +875,7 @@ git commit -m "feat(server): pgvector Place search with kind/tag filters"
 - Consumes: domain models (Task 2).
 - Produces: `class InvalidDraft(Exception)`; `make_leg(a: Place, b: Place, mode: str, travelers: int) -> Leg`; `is_open(place: Place, weekday: str, start: str, duration_min: int) -> bool`; `build_itinerary(trip: Trip, draft: Draft, places: dict[int, Place], rain: list[int | None] | None = None) -> Itinerary` (raise `InvalidDraft` khi Place không có trong `places`, sai số ngày, thiếu Stay, Stay không phải `cho-o`); `vnd(n: int) -> str`.
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_rules.py`:
 ```python
@@ -978,12 +976,12 @@ def test_missing_required_tag():
     assert [c.kind for c in itin.conflicts] == ["missing_tag"]
 ```
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_rules.py -v`
 Expected: FAIL — `No module named 'app.rules'`
 
-- [ ] **Step 3: Viết `rules.py`**
+- [x] **Step 3: Viết `rules.py`**
 
 `server/app/rules.py`:
 ```python
@@ -1109,12 +1107,12 @@ def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> lis
     return out
 ```
 
-- [ ] **Step 4: Chạy test**
+- [x] **Step 4: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_rules.py -v`
 Expected: 11 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/rules.py server/tests/test_rules.py
@@ -1131,7 +1129,7 @@ git commit -m "feat(server): rules for Leg, cost and Conflict detection"
 **Interfaces:**
 - Produces: `get_rain_chance(lat: float, lon: float, start: dt.date | None, days: int, client: httpx.Client | None = None, today: dt.date | None = None) -> list[int | None] | None` — `None` khi không có ngày đi, ngày đã qua, ngoài 16 ngày, hoặc lỗi mạng; danh sách luôn dài đúng `days` (ngày ngoài horizon = `None`).
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_forecast.py`:
 ```python
@@ -1174,12 +1172,12 @@ def test_network_error_gives_none():
     assert get_rain_chance(11.9, 108.4, dt.date(2026, 9, 27), 2, c, TODAY) is None
 ```
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_forecast.py -v`
 Expected: FAIL — `No module named 'app.forecast'`
 
-- [ ] **Step 3: Viết `forecast.py`**
+- [x] **Step 3: Viết `forecast.py`**
 
 `server/app/forecast.py`:
 ```python
@@ -1213,12 +1211,12 @@ def get_rain_chance(lat: float, lon: float, start: dt.date | None, days: int,
     return (values + [None] * days)[:days]
 ```
 
-- [ ] **Step 4: Chạy test**
+- [x] **Step 4: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_forecast.py -v`
 Expected: 4 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/forecast.py server/tests/test_forecast.py
@@ -1236,7 +1234,7 @@ git commit -m "feat(server): Open-Meteo rain forecast per Trip day"
 - Consumes: `Trip`, `TAGS` (Task 2).
 - Produces: `class UnsupportedDestination(Exception)`, `class TripParseError(Exception)`; `parse_trip(client, model: str, message: str, destinations: dict[str, str], today: dt.date) -> Trip` (`destinations` = slug → tên); test fakes `FakeClient(responses)` (có `.calls` = list kwargs), `reply(*calls, content=None)` với mỗi call là `(tool_name, args_dict_or_raw_str)`.
 
-- [ ] **Step 1: Fakes cho LLM**
+- [x] **Step 1: Fakes cho LLM**
 
 `server/tests/fakes.py`:
 ```python
@@ -1269,7 +1267,7 @@ class FakeClient:
         return r
 ```
 
-- [ ] **Step 2: Viết test**
+- [x] **Step 2: Viết test**
 
 `server/tests/test_parse_trip.py`:
 ```python
@@ -1315,12 +1313,12 @@ def test_prompt_lists_destinations_and_today():
     assert "2026-09-25" in system and "hoi-an" in system
 ```
 
-- [ ] **Step 3: Chạy để thấy fail**
+- [x] **Step 3: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_parse_trip.py -v`
 Expected: FAIL — `No module named 'app.agent'`
 
-- [ ] **Step 4: Viết phần parse của `agent.py`**
+- [x] **Step 4: Viết phần parse của `agent.py`**
 
 `server/app/agent.py`:
 ```python
@@ -1390,12 +1388,12 @@ def parse_trip(client, model: str, message: str, destinations: dict[str, str], t
         raise TripParseError("Chưa lập được Trip: hỗ trợ 1–7 ngày, 1–10 người và ngân sách lớn hơn 0.") from e
 ```
 
-- [ ] **Step 5: Chạy test**
+- [x] **Step 5: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_parse_trip.py -v`
 Expected: 5 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/app/agent.py server/tests/fakes.py server/tests/test_parse_trip.py
@@ -1419,7 +1417,7 @@ git commit -m "feat(agent): parse user request into Trip via tool call"
   - `{"type": "error", "message": str}` (kết thúc)
   - `PlaceBrief` = `{"id", "name", "kind", "lat", "lon", "photo_url", "outdoor", "price"}`
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_plan.py`:
 ```python
@@ -1509,12 +1507,12 @@ def test_thinking_text_is_streamed(conn):
     assert events[0] == {"type": "thinking", "text": "Để mình tìm quán cafe"}
 ```
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_plan.py -v`
 Expected: FAIL — `ImportError: cannot import name 'plan'`
 
-- [ ] **Step 3: Thêm phần plan vào `agent.py`**
+- [x] **Step 3: Thêm phần plan vào `agent.py`**
 
 Sửa khối import đầu `server/app/agent.py` thành:
 ```python
@@ -1683,12 +1681,12 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
         yield {"type": "error", "message": "AI chưa hoàn thành lịch trình, bạn thử lại nhé."}
 ```
 
-- [ ] **Step 4: Chạy test**
+- [x] **Step 4: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_plan.py tests/test_parse_trip.py -v`
 Expected: 12 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/agent.py server/tests/test_plan.py
@@ -1707,7 +1705,7 @@ git commit -m "feat(agent): tool-calling loop producing validated Itinerary"
 - Consumes: `get_conn` (Task 1), `settings.jwt_secret`.
 - Produces: `POST /auth/register` `{email, password}` → 201 `{"token"}` (409 nếu trùng email); `POST /auth/login` → 200 `{"token"}` (401 nếu sai); dependency `current_user(...) -> int` (user id, 401 nếu thiếu/sai token); `make_token(user_id: int) -> str`.
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_auth.py`:
 ```python
@@ -1763,12 +1761,12 @@ def test_protected_route_needs_token(client):
     assert client.get("/auth/me", headers={"Authorization": "Bearer rac"}).status_code == 401
 ```
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_auth.py -v`
 Expected: FAIL — 404 trên `/auth/register`.
 
-- [ ] **Step 3: Viết `auth.py`**
+- [x] **Step 3: Viết `auth.py`**
 
 `server/app/auth.py`:
 ```python
@@ -1846,12 +1844,12 @@ from app import auth
 app.include_router(auth.router)
 ```
 
-- [ ] **Step 4: Chạy test**
+- [x] **Step 4: Chạy test**
 
 Run: `cd server && uv run pytest tests/test_auth.py -v`
 Expected: 6 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/app/auth.py server/app/main.py server/tests/test_auth.py
@@ -1870,7 +1868,7 @@ git commit -m "feat(auth): email/password register and login with JWT"
 - Consumes: `parse_trip`, `plan`, `UnsupportedDestination`, `TripParseError` (Task 7–8); `get_rain_chance` (Task 6); `list_destinations` (Task 4); `current_user` (Task 9); `llm.chat_client`, `llm.embed` (Task 3).
 - Produces: `GET /destinations`; `POST /trips {message}` → `text/event-stream`, mỗi dòng `data: <json>`: các sự kiện của Task 8 cộng `{"type":"trip","trip_id","trip","center":[lon,lat]}`, và sự kiện `itinerary` có thêm `trip_id`, `version`; `GET /trips` → `[{id, spec, created_at}]`; `GET /trips/{id}` → `{trip_id, trip, version, itinerary, places}` hoặc 404. `trips.stream_conn` là điểm thay thế kết nối trong test.
 
-- [ ] **Step 1: Viết test**
+- [x] **Step 1: Viết test**
 
 `server/tests/test_trips_api.py`:
 ```python
@@ -1963,12 +1961,12 @@ def test_requires_login(client):
 
 Lưu ý: `add_place` tạo Destination có `name` = slug (`da-lat`), nên thông báo lỗi chứa `da-lat`.
 
-- [ ] **Step 2: Chạy để thấy fail**
+- [x] **Step 2: Chạy để thấy fail**
 
 Run: `cd server && uv run pytest tests/test_trips_api.py -v`
 Expected: FAIL — `cannot import name 'trips' from 'app'`
 
-- [ ] **Step 3: Viết `trips.py`**
+- [x] **Step 3: Viết `trips.py`**
 
 `server/app/trips.py`:
 ```python
@@ -2067,12 +2065,12 @@ Sửa `server/app/main.py`: đổi dòng import thành `from app import auth, tr
 app.include_router(trips.router)
 ```
 
-- [ ] **Step 4: Chạy toàn bộ test server**
+- [x] **Step 4: Chạy toàn bộ test server**
 
 Run: `cd server && uv run pytest -v`
 Expected: 52 passed.
 
-- [ ] **Step 5: Thử thật với LLM (cần `LLM_API_KEY`, `EMBED_API_KEY` và đã chạy import Task 3)**
+- [x] **Step 5: Thử thật với LLM (cần `LLM_API_KEY`, `EMBED_API_KEY` và đã chạy import Task 3)**
 
 Run:
 ```bash
@@ -2084,7 +2082,7 @@ curl -N localhost:8000/trips -H "Authorization: Bearer $TOKEN" -H 'Content-Type:
 ```
 Expected: luồng `data: {...}` gồm `trip`, vài `tool_call`, kết thúc bằng `itinerary` (hoặc `error` có thông báo rõ ràng). Tắt server sau khi thử.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/app/trips.py server/app/main.py server/tests/test_trips_api.py
@@ -2104,7 +2102,7 @@ git commit -m "feat(api): stream Trip planning over SSE with per-user ownership"
 - Consumes: API Task 9–10.
 - Produces: `parseSSE(buffer: string): { events: unknown[]; rest: string }`; `authRequest(path: '/auth/login' | '/auth/register', email: string, password: string): Promise<string>`; `streamTrip(token: string, message: string, onEvent: (e: AgentEvent) => void): Promise<void>` (throw `Error('unauthorized')` khi 401); types `Place, Stop, Leg, Day, Conflict, Itinerary, AgentEvent`; component `<Login onToken={(t: string) => void} />`.
 
-- [ ] **Step 1: Scaffold**
+- [x] **Step 1: Scaffold**
 
 Run:
 ```bash
@@ -2142,7 +2140,7 @@ Thêm vào `"scripts"` trong `client/package.json`: `"test": "vitest run"`.
 
 Run: `cp .env.example .env` (điền key Goong từ https://account.goong.io).
 
-- [ ] **Step 2: Viết test SSE**
+- [x] **Step 2: Viết test SSE**
 
 `client/src/sse.test.ts`:
 ```ts
@@ -2168,7 +2166,7 @@ describe('parseSSE', () => {
 Run: `cd client && npm test`
 Expected: FAIL — không tìm thấy `./sse`.
 
-- [ ] **Step 3: Viết `sse.ts` và `api.ts`**
+- [x] **Step 3: Viết `sse.ts` và `api.ts`**
 
 `client/src/sse.ts`:
 ```ts
@@ -2249,7 +2247,7 @@ export async function streamTrip(token: string, message: string, onEvent: (e: Ag
 Run: `cd client && npm test`
 Expected: 2 passed.
 
-- [ ] **Step 4: Màn hình đăng nhập + App tạm**
+- [x] **Step 4: Màn hình đăng nhập + App tạm**
 
 `client/src/components/Login.tsx`:
 ```tsx
@@ -2319,12 +2317,12 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 5: Kiểm tra tay**
+- [x] **Step 5: Kiểm tra tay**
 
 Run: `docker compose up -d` (server chạy ở :8000), rồi `cd client && npm run dev` và mở http://localhost:5173
 Expected: đăng ký tài khoản mới → thấy "Đã đăng nhập."; đăng nhập sai mật khẩu → "Sai email hoặc mật khẩu". `npm run build` không lỗi TypeScript.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add client
@@ -2343,7 +2341,7 @@ git commit -m "feat(client): Vite React scaffold with login and SSE client"
 - Consumes: `streamTrip`, types, `Login` (Task 11).
 - Produces: `<ChatPanel items busy onSend />` với `type ChatItem = { role: 'user' | 'ai' | 'tool' | 'error'; text: string }`; `<MapView center searchPins itinerary places />`; `<Timeline itinerary places budget />`.
 
-- [ ] **Step 1: ChatPanel**
+- [x] **Step 1: ChatPanel**
 
 `client/src/components/ChatPanel.tsx`:
 ```tsx
@@ -2391,7 +2389,7 @@ export default function ChatPanel({ items, busy, onSend }: {
 }
 ```
 
-- [ ] **Step 2: MapView**
+- [x] **Step 2: MapView**
 
 `client/src/components/MapView.tsx`:
 ```tsx
@@ -2495,7 +2493,7 @@ export default function MapView({ center, searchPins, itinerary, places }: {
 }
 ```
 
-- [ ] **Step 3: Timeline**
+- [x] **Step 3: Timeline**
 
 `client/src/components/Timeline.tsx`:
 ```tsx
@@ -2549,7 +2547,7 @@ export default function Timeline({ itinerary, places, budget }: {
 }
 ```
 
-- [ ] **Step 4: App đầy đủ**
+- [x] **Step 4: App đầy đủ**
 
 `client/src/App.tsx` (thay toàn bộ):
 ```tsx
@@ -2622,7 +2620,7 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 5: Kiểm tra tay end-to-end**
+- [x] **Step 5: Kiểm tra tay end-to-end**
 
 Run: `docker compose up -d` + đã import Place (Task 3), `cd client && npm run dev`, mở http://localhost:5173
 Expected:
@@ -2632,7 +2630,7 @@ Expected:
 4. Gõ "Phú Quốc 3 ngày" → thông báo đỏ liệt kê Destination đang hỗ trợ.
 5. `npm run build && npm test` không lỗi.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add client/src
@@ -2651,7 +2649,7 @@ git commit -m "feat(client): chat, Goong 3D map with live search pins, itinerary
 - Consumes: bản build `client/dist` (Task 12).
 - Produces: `uv run python main.py [url]` mở cửa sổ desktop "Travility".
 
-- [ ] **Step 1: Project desktop**
+- [x] **Step 1: Project desktop**
 
 `desktop/pyproject.toml`:
 ```toml
@@ -2692,7 +2690,7 @@ if __name__ == "__main__":
 Run: `cd client && npm run build && cd ../desktop && uv sync && uv run python main.py`
 Expected: cửa sổ native "Travility" mở màn hình đăng nhập; đăng nhập và lập một Trip chạy giống Task 12 bước 5.
 
-- [ ] **Step 2: README + CLAUDE.md**
+- [x] **Step 2: README + CLAUDE.md**
 
 `README.md`:
 ````markdown
@@ -2729,7 +2727,7 @@ Thêm vào cuối `CLAUDE.md`:
 - Desktop: `cd desktop && uv run python main.py [url]`
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add desktop README.md CLAUDE.md
