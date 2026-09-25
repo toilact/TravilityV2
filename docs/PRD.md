@@ -248,8 +248,14 @@ SERVER (docker compose)
 
 ## 12. Lộ trình & phân vai
 
-Bắt đầu 2026-09-25. Vai (nhóm tự điền tên):
-**A** Client React + map/animation + UI mới · **B** Agent + tools + rules + Revision · **C** Dữ liệu Place + import + pgvector + Goong Matrix · **D** Auth + voice/vision/recap/PDF + đóng gói + demo_cache.
+Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2–#29.
+
+| Thành viên | Vai | Issue |
+|---|---|---|
+| **Đỗ Chí Thành** (@toilact) — trưởng nhóm | B: Agent, rules, Revision (đường găng) + Goong Matrix + golden set + demo | #17, #22, #24, #25, #26, #18, #7, #27, #6, #29 |
+| **Nguyễn Thanh Tùng** (@nguyentung206) | A: Client React, bản đồ, UI mới, giọng nói phía client, recap | #2, #3, #4, #16, #23, #8, #9, #28 |
+| **Đặng Trần Minh Nhật** (@MinhATT) | D: Inspiration Photo, PDF, Google login, quên mật khẩu, demo_cache, đóng gói | #10, #11, #12, #13, #14, #15 |
+| **Nguyễn Duy Quân** (@skyduyquan2-sudo) | C: Dữ liệu Place (script thu thập + 3 Destination) | #5, #19, #20, #21 |
 
 | Tuần | Nội dung | Trạng thái |
 |---|---|---|
@@ -284,7 +290,6 @@ Bắt đầu 2026-09-25. Vai (nhóm tự điền tên):
 | Goong Matrix hết quota / lỗi | Fallback công thức chim bay × 1.3 |
 
 ## 15. Câu hỏi mở
-- Tên và vai cụ thể của từng thành viên.
 - Có cần ADR cho việc chuyển tính km sang Goong Distance Matrix ở server không?
 - Nguồn ảnh Place (tự chụp, Goong, Wikimedia) và vấn đề bản quyền.
 - Giới hạn độ dài lịch sử chat gửi cho LLM trong mỗi Revision.

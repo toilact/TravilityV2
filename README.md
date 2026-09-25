@@ -18,14 +18,14 @@ Khi các tài liệu mâu thuẫn: **PRD thắng spec**; CONTEXT.md thắng về
 
 ## Phân vai & vùng code
 
-Tên người điền vào PRD §12. Mỗi vai là người review chính cho vùng code của mình.
+Người phụ trách và danh sách issue: PRD §12. Mỗi vai là người review chính cho vùng code của mình.
 
 | Vai | Phụ trách | Vùng code |
 |---|---|---|
-| A | Client React, bản đồ/animation, UI mới | `client/`, `desktop/` |
-| B | Agent, tools, rules, Revision | `server/app/agent.py`, `rules.py`, `trips.py`, `domain.py` |
-| C | Dữ liệu Place, import, pgvector, Goong Matrix | `data/places/`, `server/scripts/`, `server/app/places.py` |
-| D | Auth, voice/vision/recap/PDF, đóng gói, demo_cache | `server/app/auth.py`, `forecast.py`, `llm.py`, `docker-compose.yml` |
+| A — Tùng | Client React, bản đồ/animation, UI mới | `client/`, `desktop/` |
+| B — Thành | Agent, tools, rules, Revision | `server/app/agent.py`, `rules.py`, `trips.py`, `domain.py` |
+| C — Quân | Dữ liệu Place, import, pgvector, Goong Matrix | `data/places/`, `server/scripts/`, `server/app/places.py` |
+| D — Nhật | Auth, voice/vision/recap/PDF, đóng gói, demo_cache | `server/app/auth.py`, `forecast.py`, `llm.py`, `docker-compose.yml` |
 
 ## Quy trình làm việc
 
