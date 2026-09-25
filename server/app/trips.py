@@ -1,5 +1,7 @@
 import datetime as dt
 import json
+import logging
+from zoneinfo import ZoneInfo
 
 import openai
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +15,9 @@ from app.auth import current_user
 from app.config import settings
 from app.db import connect, get_conn
 from app.places import list_destinations
+
+logger = logging.getLogger(__name__)
+VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 router = APIRouter()
 stream_conn = connect  # SSE chạy sau khi handler trả về → tự mở kết nối riêng; test thay bằng kết nối test
@@ -39,6 +44,9 @@ def create_trip(body: NewTrip, user_id: int = Depends(current_user)):
                 yield from _run(conn, user_id, body.message)
             except openai.OpenAIError:
                 yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
+            except Exception:
+                logger.exception("Lỗi không lường trước khi lập lịch trình")
+                yield sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."})
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
@@ -49,7 +57,8 @@ def _run(conn, user_id: int, message: str):
     yield sse({"type": "thinking", "text": "Đang đọc yêu cầu của bạn…"})
     try:
         trip = parse_trip(client, settings.llm_model, message,
-                          {slug: d["name"] for slug, d in dests.items()}, dt.date.today())
+                          {slug: d["name"] for slug, d in dests.items()},
+                          dt.datetime.now(VN_TZ).date())
     except (UnsupportedDestination, TripParseError) as e:
         yield sse({"type": "error", "message": str(e)})
         return

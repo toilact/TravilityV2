@@ -182,8 +182,9 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
             elif c.function.name == "search_places":
                 query = str(args.get("query", ""))
                 found = search_places(
-                    conn, trip.destination, embed_fn([query])[0], kind=args.get("kind"),
-                    must_have_tags=[t for t in args.get("must_have_tags", []) if t in TAGS],
+                    conn, trip.destination, embed_fn([query])[0],
+                    kind=args.get("kind") if args.get("kind") in KINDS else None,
+                    must_have_tags=[t for t in (args.get("must_have_tags") or []) if t in TAGS],
                     exclude_tags=trip.avoided_tags)
                 seen.update({p.id: p for p in found})
                 yield {"type": "tool_call", "name": "search_places", "query": query,
@@ -195,7 +196,10 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
                 except (ValidationError, InvalidDraft) as e:
                     invalid += 1
                     if invalid > MAX_INVALID:
-                        yield {"type": "error", "message": "AI chưa lập được lịch trình hợp lệ, bạn thử lại nhé."}
+                        if last:  # đã có phương án hợp lệ trước đó → trả phương án đó thay vì báo lỗi
+                            yield _itinerary_event(last, seen)
+                        else:
+                            yield {"type": "error", "message": "AI chưa lập được lịch trình hợp lệ, bạn thử lại nhé."}
                         return
                     result = f"Lỗi: {e}. Chỉ dùng place_id đã nhận từ search_places."
                 else:

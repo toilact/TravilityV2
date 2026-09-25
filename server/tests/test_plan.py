@@ -1,4 +1,4 @@
-from app.agent import plan
+from app.agent import MAX_STEPS, plan
 from app.domain import Trip
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
@@ -82,3 +82,37 @@ def test_thinking_text_is_streamed(conn):
     _, events = run(conn, [reply(("search_places", {"query": "x"}), content="Để mình tìm quán cafe"),
                            reply(("submit_itinerary", stops(a)))])
     assert events[0] == {"type": "thinking", "text": "Để mình tìm quán cafe"}
+
+
+def test_null_must_have_tags_does_not_crash(conn):
+    a = add_place(conn)
+    _, events = run(conn, [reply(("search_places", {"query": "x", "must_have_tags": None})),
+                           reply(("submit_itinerary", stops(a)))])
+    assert events[-1]["type"] == "itinerary"
+
+
+def test_valid_itinerary_kept_after_two_invalid_resubmits(conn):
+    a = add_place(conn, price=500_000)
+    _, events = run(conn, [reply(("search_places", {"query": "x"})),
+                           reply(("submit_itinerary", stops(a))),
+                           reply(("submit_itinerary", stops(999))),
+                           reply(("submit_itinerary", stops(998)))], budget=1_000)
+    assert events[-1]["type"] == "itinerary"
+    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"]] == ["over_budget"]
+
+
+def test_max_steps_exhausted_with_no_submit_is_error(conn):
+    add_place(conn)
+    responses = [reply(("search_places", {"query": "x"})) for _ in range(MAX_STEPS)]
+    _, events = run(conn, responses)
+    assert events[-1]["type"] == "error"
+
+
+def test_max_steps_exhausted_after_conflict_submit_keeps_best_effort(conn):
+    a = add_place(conn, price=500_000)
+    responses = [reply(("search_places", {"query": "x"})),
+                 reply(("submit_itinerary", stops(a)))]
+    responses += [reply(("search_places", {"query": "x"})) for _ in range(MAX_STEPS - len(responses))]
+    _, events = run(conn, responses, budget=1_000)
+    assert events[-1]["type"] == "itinerary"
+    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"]] == ["over_budget"]

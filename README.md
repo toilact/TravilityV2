@@ -6,6 +6,7 @@ App desktop giúp người Việt lên kế hoạch du lịch trong nước bằ
 
 ```bash
 cp server/.env.example server/.env        # điền LLM_API_KEY, EMBED_API_KEY, JWT_SECRET
+python -c "import secrets;print(secrets.token_urlsafe(32))"  # dán vào JWT_SECRET ở trên
 cp client/.env.example client/.env        # điền key Goong
 docker compose up -d --build              # Postgres + API ở http://localhost:8000
 cd server && uv sync && uv run python -m scripts.import_places ../data/places

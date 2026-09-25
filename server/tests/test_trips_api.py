@@ -81,5 +81,12 @@ def test_llm_down_is_error_event(client, conn, monkeypatch):
     assert evs[-1] == {"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."}
 
 
+def test_unexpected_exception_is_error_event(client, conn, monkeypatch):
+    add_place(conn)
+    use_llm(monkeypatch, [RuntimeError("boom")])
+    evs = events(client.post("/trips", json={"message": "x"}, headers=auth(client)))
+    assert evs[-1] == {"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."}
+
+
 def test_requires_login(client):
     assert client.post("/trips", json={"message": "x"}).status_code == 401

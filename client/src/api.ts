@@ -30,7 +30,7 @@ export async function authRequest(path: '/auth/login' | '/auth/register', email:
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   })
-  const body = await r.json()
+  const body = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Email hoặc mật khẩu không hợp lệ (mật khẩu tối thiểu 8 ký tự)')
   return body.token as string
 }
@@ -48,12 +48,18 @@ export async function streamTrip(token: string, message: string, onEvent: (e: Ag
   }
   const reader = r.body.pipeThrough(new TextDecoderStream()).getReader()
   let buf = ''
+  let finished = false
   for (;;) {
     const { value, done } = await reader.read()
     if (done) break
     buf += value
     const { events, rest } = parseSSE(buf)
     buf = rest
-    events.forEach((e) => onEvent(e as AgentEvent))
+    events.forEach((e) => {
+      const ev = e as AgentEvent
+      if (ev.type === 'itinerary' || ev.type === 'error') finished = true
+      onEvent(ev)
+    })
   }
+  if (!finished) onEvent({ type: 'error', message: 'Kết nối bị ngắt giữa chừng, bạn thử lại nhé.' })
 }

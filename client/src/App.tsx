@@ -40,7 +40,7 @@ export default function App() {
           case 'trip': setCenter(e.center); setBudget(e.trip.budget); setItinerary(null); break
           case 'tool_call':
             add({ role: 'tool', text: `Đang tìm: ${e.query} (${e.places.length} kết quả)` })
-            setSearchPins((p) => [...p, ...e.places])
+            setSearchPins((p) => [...p, ...e.places.filter((x) => !p.some((y) => y.id === x.id))])
             break
           case 'itinerary':
             setPlaces(e.places); setItinerary(e.itinerary); setSearchPins([])
