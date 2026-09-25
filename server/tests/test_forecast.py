@@ -35,3 +35,10 @@ def test_network_error_gives_none():
         raise httpx.ConnectError("offline")
     c = httpx.Client(transport=httpx.MockTransport(boom))
     assert get_rain_chance(11.9, 108.4, dt.date(2026, 9, 27), 2, c, TODAY) is None
+
+
+def test_injected_client_not_closed():
+    c = client_returning([10, 20])
+    r = get_rain_chance(11.9, 108.4, dt.date(2026, 9, 27), 2, c, TODAY)
+    assert r == [10, 20]
+    assert not c.is_closed

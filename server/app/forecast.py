@@ -15,14 +15,21 @@ def get_rain_chance(lat: float, lon: float, start: dt.date | None, days: int,
     if start < today or start > horizon_end:
         return None
     end = min(start + dt.timedelta(days=days - 1), horizon_end)
-    client = client or httpx.Client(timeout=5)
-    try:
-        r = client.get(URL, params={
+
+    def _fetch(c):
+        r = c.get(URL, params={
             "latitude": lat, "longitude": lon, "daily": "precipitation_probability_max",
             "timezone": "Asia/Ho_Chi_Minh", "start_date": start.isoformat(), "end_date": end.isoformat(),
         })
         r.raise_for_status()
-        values = r.json()["daily"]["precipitation_probability_max"]
+        return r.json()["daily"]["precipitation_probability_max"]
+
+    try:
+        if client is not None:
+            values = _fetch(client)
+        else:
+            with httpx.Client(timeout=5) as c:
+                values = _fetch(c)
     except (httpx.HTTPError, KeyError, ValueError):
         return None  # Forecast là phần phụ: lỗi thì lập lịch không có thời tiết
     return (values + [None] * days)[:days]
