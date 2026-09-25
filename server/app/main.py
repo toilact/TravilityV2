@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import auth
 from app.db import apply_schema, connect
 
 
@@ -16,6 +17,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Travility", lifespan=lifespan)
 # Client desktop gửi JWT qua header, không dùng cookie → cho mọi origin là an toàn.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.include_router(auth.router)
 
 
 @app.get("/health")
