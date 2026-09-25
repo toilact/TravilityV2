@@ -6,7 +6,7 @@ Thuật ngữ in đậm theo [CONTEXT.md](../../../CONTEXT.md). Quyết định 
 Đồ án nhóm (3–4 người, ~8–10 tuần): app desktop du lịch + bản đồ cho người Việt, dùng AI càng nhiều càng tốt, demo phải "wow" trước giảng viên (demo trực tiếp 10–15 phút trên 1 laptop).
 
 ## Sản phẩm
-**Lõi — AI Trip Planner:** User gõ/nói "Đi Đà Lạt 3 ngày, 3 triệu, thích cafe chill" → AI dựng **Trip** (Destination, số ngày, ngày đi nếu có, Budget, Preference, Pace, Travel Mode) → gọi tool tìm **Place** thật, tính **Leg**, **Forecast**, chi phí → **Itinerary** theo ngày hiện lên timeline + tuyến đường trên map 3D, camera bay qua từng **Stop**. Mỗi Stop có **Reason**. Trong lúc AI "nghĩ", map hiện live các bước (pin nhấp nháy) — khoảnh khắc wow chính. Itinerary luôn được tạo, kèm danh sách **Conflict** + gợi ý nếu không thỏa hết.
+**Lõi — AI Trip Planner:** User gõ/nói "Đi Đà Lạt 3 ngày, 3 triệu, thích cafe chill" → AI dựng **Trip** (Destination, số ngày, ngày đi nếu có, số người, Budget, Preference, Pace, Travel Mode) → gọi tool tìm **Place** thật, tính **Leg**, **Forecast**, chi phí → **Itinerary** theo ngày hiện lên timeline + tuyến đường trên map 3D, camera bay qua từng **Stop**. Mỗi Stop có **Reason**. Trong lúc AI "nghĩ", map hiện live các bước (pin nhấp nháy) — khoảnh khắc wow chính. Itinerary luôn được tạo, kèm danh sách **Conflict** + gợi ý nếu không thỏa hết.
 
 **Vệ tinh (thứ tự ưu tiên):**
 1. **Revision** bằng hội thoại — "ngày 2 mưa thì sao?", "bớt 500k" → chỉ Stop liên quan thay đổi, **Pinned Stop** bất khả xâm phạm; map animate Stop đổi; undo về phiên bản Itinerary trước.
@@ -21,7 +21,8 @@ Thuật ngữ in đậm theo [CONTEXT.md](../../../CONTEXT.md). Quyết định 
 ## Quy tắc nghiệp vụ (code thực thi, không phải prompt)
 - AI chỉ tham chiếu Place trả về từ tool; Place lạ → từ chối, AI làm lại 1 lần (ADR-0001).
 - Budget = ăn + vé + Stay + chi phí Leg; không gồm di chuyển liên tỉnh (ADR-0005).
-- Stay tính theo đêm, là điểm đầu/cuối mỗi ngày; không phải Stop.
+- Một Stay cho cả Trip (bắt buộc khi Trip > 1 ngày), tính theo đêm × số phòng (2 người/phòng), là điểm đầu/cuối mỗi ngày; không phải Stop.
+- Chi phí Stop = giá Place × số người; xe máy thuê tính theo ngày × số xe (2 người/xe).
 - Travel Mode mỗi Trip: xe máy thuê (mặc định) hoặc Grab; Leg < ~800 m đi bộ. Chi phí Leg theo công thức cố định.
 - Pace: thong thả 3–4 Stop (9h–20h) · vừa 5 (8h–21h) · dày 6–7 (7h–22h).
 - Conflict phát hiện bằng code: vượt Budget, ngoài giờ mở cửa (theo thứ trong tuần nếu có ngày đi), thiếu Tag bắt buộc, Stop ngoài trời vào ngày dự báo mưa.
@@ -58,7 +59,7 @@ scripts/import_places.py         seed → Postgres + embedding (chạy lại đ�
 ```
 Place: tọa độ, loại (có loại chỗ ở), Tag, giá, giờ mở theo thứ, trong nhà/ngoài trời, ảnh, mô tả. Không có màn hình Admin; sửa Place = sửa file seed + PR + chạy lại import.
 
-**Itinerary:** `days[] → {stay_place_id, stops[] {place_id, start_time, duration_min, est_cost, reason, pinned}}` + `total_cost` + `conflicts[]`. Mỗi Revision lưu một phiên bản mới; client diff hai phiên bản để animate.
+**Itinerary:** `stay_place_id` + `days[] → {date, rain_chance, legs[], stops[] {place_id, start_time, duration_min, est_cost, reason, pinned}}` + `total_cost` + `conflicts[]`. Mỗi Revision lưu một phiên bản mới; client diff hai phiên bản để animate.
 
 ## Destination
 Đà Lạt, Đà Nẵng – Hội An, Hà Nội (stretch: thêm 2). Mỗi Destination ~150–300 Place.

@@ -17,7 +17,7 @@ Một thành phố hoặc vùng mà app có dữ liệu Place đầy đủ (vd. 
 _Avoid_: City, region, khu vực
 
 **Trip** (Chuyến đi):
-Mong muốn du lịch của người dùng — một Destination, số ngày (và ngày đi nếu có), Budget, Preference, Pace, Travel Mode. Thuộc về đúng một User và chỉ người đó thấy. Một Trip có nhiều phiên bản Itinerary.
+Mong muốn du lịch của người dùng — một Destination, số ngày (và ngày đi nếu có), số người, Budget, Preference, Pace, Travel Mode. Thuộc về đúng một User và chỉ người đó thấy. Một Trip có nhiều phiên bản Itinerary.
 _Avoid_: Plan, tour, request
 
 **Itinerary** (Lịch trình):
@@ -53,7 +53,7 @@ _Avoid_: Recommendation, candidate, result
 _Avoid_: Upload, image query
 
 **Stay** (Chỗ ở):
-Việc lưu trú qua đêm tại một Place loại chỗ ở, gắn với một đêm của Itinerary; là điểm xuất phát và kết thúc của mỗi ngày. Không phải Stop.
+Việc lưu trú tại một Place loại chỗ ở cho mọi đêm của một Itinerary; là điểm xuất phát và kết thúc của mỗi ngày. Không phải Stop.
 _Avoid_: Hotel, booking, lodging
 
 **Leg** (Chặng):
