@@ -1,0 +1,26 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: travility
+      POSTGRES_PASSWORD: travility
+      POSTGRES_DB: travility
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travility"]
+      interval: 2s
+      retries: 30
+  api:
+    build: ./server
+    env_file: ./server/.env
+    environment:
+      DATABASE_URL: postgresql://travility:travility@db:5432/travility
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata: {}

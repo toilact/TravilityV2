@@ -25,7 +25,7 @@ Một phương án cụ thể, bất biến, do AI tạo cho một Trip. Mỗi l
 _Avoid_: Schedule, plan, lịch
 
 **Conflict** (Xung đột):
-Một điểm Itinerary không đáp ứng được mong muốn của Trip — vượt Budget, Stop ngoài giờ mở cửa của Place, thiếu Tag bắt buộc, Stop ngoài trời vào ngày dự báo mưa. Itinerary vẫn được tạo, kèm danh sách Conflict và gợi ý khắc phục.
+Một điểm Itinerary không đáp ứng được mong muốn của Trip — vượt Budget, Stop ngoài giờ mở cửa của Place, thiếu Tag bắt buộc, Stop ngoài trời vào ngày dự báo mưa, không kịp di chuyển giữa hai Stop. Itinerary vẫn được tạo, kèm danh sách Conflict và gợi ý khắc phục.
 _Avoid_: Error, warning, violation
 
 **Revision** (Chỉnh sửa):
@@ -53,7 +53,7 @@ _Avoid_: Recommendation, candidate, result
 _Avoid_: Upload, image query
 
 **Stay** (Chỗ ở):
-Việc lưu trú tại một Place loại chỗ ở cho mọi đêm của một Itinerary; là điểm xuất phát và kết thúc của mỗi ngày. Không phải Stop.
+Việc lưu trú tại một Place loại chỗ ở cho mọi đêm của một Itinerary; là điểm xuất phát và kết thúc của mỗi ngày. Không phải Stop. Loại chỗ ở (khách sạn, homestay, hostel, resort) được biểu diễn bằng Tag.
 _Avoid_: Hotel, booking, lodging
 
 **Leg** (Chặng):
