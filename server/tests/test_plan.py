@@ -1,7 +1,16 @@
-from app.agent import MAX_STEPS, plan
-from app.domain import Trip
+import pytest
+
+from app import rules
+from app.agent import MAX_STEPS, plan, trip_brief
+from app.domain import Hub, Trip
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
+
+
+@pytest.fixture(autouse=True)
+def no_meal_rule(monkeypatch):
+    """Các test ở đây không xếp bữa ăn; quy tắc 3 bữa được test riêng ở test_rules / test_missing_meal_*."""
+    monkeypatch.setattr(rules, "MEALS", ())
 
 
 def fake_embed(texts):
@@ -73,7 +82,7 @@ def test_conflict_gets_one_resubmit_then_accepted(conn):
     client, events = run(conn, [reply(("search_places", {"query": "x"})),
                                 reply(("submit_itinerary", stops(a))),
                                 reply(("submit_itinerary", stops(a)))], budget=1_000)
-    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"]] == ["over_budget"]
+    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"] if c["kind"] != "missing_meal"] == ["over_budget"]
     assert any(m.startswith("Conflict") for m in tool_messages(client))
 
 
@@ -98,7 +107,7 @@ def test_valid_itinerary_kept_after_two_invalid_resubmits(conn):
                            reply(("submit_itinerary", stops(999))),
                            reply(("submit_itinerary", stops(998)))], budget=1_000)
     assert events[-1]["type"] == "itinerary"
-    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"]] == ["over_budget"]
+    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"] if c["kind"] != "missing_meal"] == ["over_budget"]
 
 
 def test_max_steps_exhausted_with_no_submit_is_error(conn):
@@ -115,4 +124,35 @@ def test_max_steps_exhausted_after_conflict_submit_keeps_best_effort(conn):
     responses += [reply(("search_places", {"query": "x"})) for _ in range(MAX_STEPS - len(responses))]
     _, events = run(conn, responses, budget=1_000)
     assert events[-1]["type"] == "itinerary"
-    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"]] == ["over_budget"]
+    assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"] if c["kind"] != "missing_meal"] == ["over_budget"]
+
+
+def test_brief_mentions_times_and_hub():
+    trip = Trip(destination="da-lat", days=1, budget=1, arrival_time="14:00", departure_time="20:00")
+    text = trip_brief(trip, None, Hub(name="Sân bay Liên Khương", lat=11.75, lon=108.37))
+    assert "14:00" in text and "20:00" in text and "Sân bay Liên Khương" in text
+    assert "Travel Mode: xe-may" in text  # chưa nói → mặc định
+
+
+def test_brief_quotes_user_messages():
+    trip = Trip(destination="da-lat", days=2, budget=1)
+    text = trip_brief(trip, None, None, ["Đà Lạt 2 ngày, phải đi vườn hoa", "khách sạn rẻ hơn"])
+    assert "phải đi vườn hoa" in text and "khách sạn rẻ hơn" in text
+
+
+def test_plan_prompt_requires_three_meals():
+    from app.agent import PLAN_PROMPT
+    assert "trưa" in PLAN_PROMPT and "11:00" in PLAN_PROMPT
+
+
+def test_missing_meal_is_sent_back_to_ai(conn, monkeypatch):
+    monkeypatch.setattr(rules, "MEALS", (("trưa", "11:00", "14:00"),))
+    sight, food = add_place(conn, name="Hồ"), add_place(conn, name="Quán cơm", kind="an-uong", vec=1)
+    lunch = {"summary": "ok", "days": [{"stops": [
+        {"place_id": sight, "start_time": "09:00", "duration_min": 60, "reason": "x"},
+        {"place_id": food, "start_time": "12:00", "duration_min": 60, "reason": "bữa trưa"}]}]}
+    client, events = run(conn, [reply(("search_places", {"query": "x"})),
+                                reply(("submit_itinerary", stops(sight))),
+                                reply(("submit_itinerary", lunch))])
+    assert any("chưa có bữa trưa" in m for m in tool_messages(client))
+    assert events[-1]["itinerary"]["conflicts"] == []

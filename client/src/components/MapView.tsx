@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre'
 import polyline from '@mapbox/polyline'
+import { setWorkerUrl } from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { Itinerary, Place } from '../api'
+
+// MapLibre v6 tìm worker cạnh file của nó (import.meta.url) — sau khi Vite bundle thì file đó không tồn tại
+setWorkerUrl(workerUrl)
 
 const STYLE_URL = `https://tiles.goong.io/assets/goong_map_web.json?api_key=${import.meta.env.VITE_GOONG_MAPTILES_KEY}`
 export const DAY_COLORS = ['#047857', '#b45309', '#1d4ed8', '#be123c', '#7c3aed', '#0f766e', '#a16207']
@@ -38,7 +43,9 @@ export default function MapView({ center, searchPins, itinerary, places }: {
       const features: GeoJSON.Feature[] = []
       for (const [i, day] of itinerary.days.entries()) {
         for (const leg of day.legs) {
-          const a = places[leg.from_place_id], b = places[leg.to_place_id]
+          // ponytail: Leg tới/từ Hub chưa vẽ (Hub không có trong places); thêm marker Hub khi cần
+          const a = leg.from_place_id != null ? places[leg.from_place_id] : undefined
+          const b = leg.to_place_id != null ? places[leg.to_place_id] : undefined
           if (!a || !b) continue
           features.push({ type: 'Feature', properties: { color: DAY_COLORS[i % DAY_COLORS.length] },
             geometry: { type: 'LineString', coordinates: await legLine(a, b) } })

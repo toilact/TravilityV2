@@ -61,8 +61,24 @@ Quãng di chuyển giữa hai điểm liên tiếp trong cùng một ngày (Stay
 _Avoid_: Route, segment, trip
 
 **Travel Mode** (Phương tiện):
-Cách di chuyển chính của một Trip — xe máy thuê (mặc định) hoặc taxi/Grab. Leg quá ngắn luôn đi bộ bất kể Travel Mode.
+Cách di chuyển chính trong thành phố của một Trip — xe máy thuê (mặc định), taxi/Grab, xe máy riêng hoặc ô tô riêng. Xe riêng không tính tiền thuê. Leg quá ngắn luôn đi bộ bất kể Travel Mode.
 _Avoid_: Transport, vehicle
+
+**Origin** (Nơi xuất phát):
+Thành phố người dùng đi từ đó tới Destination. Chỉ để hiển thị và gợi ý Arrival Mode; không tính tiền.
+_Avoid_: Điểm đi, home
+
+**Arrival / Departure** (Giờ đến / Giờ về):
+Thời điểm tới Destination ngày 1 và rời Destination ngày cuối. Stop phải cách giờ đến ít nhất 60 phút và cách giờ về ít nhất 90 phút.
+_Avoid_: Check-in, check-out
+
+**Arrival Mode** (Phương tiện đến):
+Cách tới Destination — máy bay, xe khách, tàu, tự lái. Khác Travel Mode (đi lại trong thành phố). Chỉ dùng để chọn Hub.
+_Avoid_: Transport
+
+**Hub** (Điểm đến nơi):
+Sân bay, bến xe hoặc ga của một Destination; điểm đầu ngày 1 và điểm cuối ngày cuối khi biết Arrival Mode.
+_Avoid_: Terminal, station
 
 **Pace** (Nhịp độ):
 Mức dày đặc của mỗi ngày trong Trip — thong thả, vừa (mặc định) hoặc dày — quyết định số Stop và khung giờ hoạt động mỗi ngày.

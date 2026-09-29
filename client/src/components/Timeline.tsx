@@ -1,4 +1,4 @@
-import type { Itinerary, Place } from '../api'
+import { mealOf, type Itinerary, type Place } from '../api'
 
 const vnd = (n: number) => n.toLocaleString('vi-VN') + 'đ'
 
@@ -28,15 +28,19 @@ export default function Timeline({ itinerary, places, budget }: {
             Ngày {i + 1}{day.date && ` · ${day.date}`}{day.rain_chance != null && ` · mưa ${day.rain_chance}%`}
           </h2>
           <ol className="space-y-2">
-            {day.stops.map((s, j) => (
+            {day.stops.map((s, j) => {
+              const meal = mealOf(places[s.place_id]?.kind, s.start_time)
+              return (
               <li key={j} className="rounded-lg bg-white p-3 text-sm shadow-sm">
+                {meal && <div className="mb-1 text-xs font-medium text-amber-700">🍜 {meal}</div>}
                 <div className="flex justify-between gap-2">
                   <span className="font-medium">{s.start_time} · {places[s.place_id]?.name}</span>
                   <span className="shrink-0">{vnd(s.est_cost)}</span>
                 </div>
                 <p className="mt-1 text-xs text-stone-500">{s.reason}</p>
               </li>
-            ))}
+              )
+            })}
           </ol>
           <p className="mt-1 text-xs text-stone-500">
             Di chuyển: {day.legs.reduce((a, l) => a + l.distance_km, 0).toFixed(1)} km · {vnd(day.legs.reduce((a, l) => a + l.cost, 0))}

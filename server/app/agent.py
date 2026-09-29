@@ -1,12 +1,15 @@
 import datetime as dt
 import json
+import re
 from collections.abc import Iterator
+from typing import get_args
 
 from pydantic import ValidationError
 
-from app.domain import KINDS, PACE_HOURS, PACE_STOPS, TAGS, Draft, Itinerary, Place, Trip
+from app.domain import (DEFAULT_TRAVEL_MODE, HHMM, KINDS, PACE_HOURS, PACE_STOPS, TAGS, ArrivalMode, Draft, Hub,
+                        Itinerary, Place, TravelMode, Trip, TripAnswers)
 from app.places import search_places
-from app.rules import InvalidDraft, build_itinerary, vnd
+from app.rules import ARRIVAL_BUFFER_MIN, DEPARTURE_BUFFER_MIN, InvalidDraft, build_itinerary, vnd
 
 
 class UnsupportedDestination(Exception):
@@ -22,7 +25,10 @@ Destination hỗ trợ: {dests}. Nếu người dùng muốn đi nơi khác, des
 Budget tính bằng VND cho cả nhóm ("3 triệu" = 3000000). Nếu không nói, ước lượng 1500000 × số người × số ngày.
 Chỉ điền start_date (YYYY-MM-DD) khi người dùng nói rõ ngày đi.
 Pace: "nhẹ nhàng/thong thả" = thong-tha, "đi nhiều/khám phá hết" = day, còn lại = vua.
-Chỉ dùng Tag trong danh sách cho phép; Tag người dùng nói không muốn → avoided_tags."""
+Chỉ dùng Tag trong danh sách cho phép; Tag người dùng nói không muốn → avoided_tags.
+Travel Mode (đi lại trong thành phố): thuê xe máy = xe-may, Grab/taxi = grab, xe máy của mình = xe-may-rieng, ô tô của mình = o-to-rieng.
+Chỉ điền travel_mode, origin_city, arrival_mode, arrival_time, departure_time khi người dùng nói rõ; không đoán.
+Nhiều tin nhắn = cùng một chuyến, theo thứ tự thời gian; tin sau thắng tin trước khi mâu thuẫn."""
 
 
 def _trip_tool(dest_slugs: list[str]) -> dict:
@@ -37,7 +43,11 @@ def _trip_tool(dest_slugs: list[str]) -> dict:
             "travelers": {"type": "integer"},
             "required_tags": tag_list, "preferred_tags": tag_list, "avoided_tags": tag_list,
             "pace": {"type": "string", "enum": ["thong-tha", "vua", "day"]},
-            "travel_mode": {"type": "string", "enum": ["xe-may", "grab"]},
+            "travel_mode": {"type": "string", "enum": list(get_args(TravelMode))},
+            "origin_city": {"type": "string", "description": "Thành phố người dùng đi từ đó tới"},
+            "arrival_mode": {"type": "string", "enum": list(get_args(ArrivalMode))},
+            "arrival_time": {"type": "string", "description": "HH:MM, giờ tới Destination ngày 1"},
+            "departure_time": {"type": "string", "description": "HH:MM, giờ rời Destination ngày cuối"},
         }, "required": ["destination", "days", "budget"]},
     }}
 
@@ -58,13 +68,57 @@ def parse_trip(client, model: str, message: str, destinations: dict[str, str], t
         args = json.loads(calls[0].function.arguments)
     except json.JSONDecodeError as e:
         raise TripParseError("AI trả về dữ liệu hỏng, thử lại nhé.") from e
+    for k in ("arrival_time", "departure_time"):
+        if not re.fullmatch(HHMM, str(args.get(k) or "")):
+            args.pop(k, None)  # LLM có thể trả "2pm"/"14h" → coi như chưa nói
     if args.get("destination") not in destinations:
         raise UnsupportedDestination(
             f"Travility chưa hỗ trợ điểm đến này. Hiện có: {', '.join(destinations.values())}.")
     try:
         return Trip.model_validate(args)
     except ValidationError as e:
-        raise TripParseError("Chưa lập được Trip: hỗ trợ 1–7 ngày, 1–10 người và ngân sách lớn hơn 0.") from e
+        raise TripParseError(
+            "Chưa lập được Trip: hỗ trợ 1–7 ngày, 1–10 người, ngân sách lớn hơn 0 và giờ về phải sau giờ đến.") from e
+
+
+TRAVEL_MODE_LABELS = {"xe-may": "Thuê xe máy", "grab": "Grab/taxi", "xe-may-rieng": "Xe máy riêng",
+                      "o-to-rieng": "Ô tô riêng"}
+ARRIVAL_MODE_LABELS = {"may-bay": "Máy bay", "xe-khach": "Xe khách", "tau": "Tàu hoả", "tu-lai": "Tự lái"}
+
+
+def _options(labels: dict[str, str]) -> list[dict]:
+    return [{"value": v, "label": label} for v, label in labels.items()]
+
+
+def missing_questions(trip: Trip) -> list[dict]:
+    """Câu hỏi lại cho thông tin người dùng chưa nói (spec §3). Code quyết định, không phải LLM."""
+    qs = []
+    if trip.travel_mode is None:
+        qs.append({"field": "travel_mode", "text": "Bạn đi lại trong thành phố bằng gì?",
+                   "options": _options(TRAVEL_MODE_LABELS)})
+    if trip.start_date and not (trip.arrival_time or trip.departure_time):
+        qs.append({"field": "arrival", "text": "Bạn tới bằng gì, mấy giờ tới và mấy giờ về?",
+                   "options": _options(ARRIVAL_MODE_LABELS)})
+    return qs
+
+
+KEEP_IF_UNSAID = ("start_date", "travel_mode", "origin_city", "arrival_mode", "arrival_time", "departure_time")
+
+
+def merge_trip(old: Trip, new: Trip) -> Trip:
+    """Tin nhắn tiếp theo của cùng Trip: trường người dùng không nhắc lại (vd đã chọn bằng chip) giữ giá trị cũ."""
+    data = new.model_dump()
+    for k in KEEP_IF_UNSAID:
+        if data[k] is None:
+            data[k] = getattr(old, k)
+    return Trip.model_validate(data)
+
+
+def apply_answers(trip: Trip, answers: TripAnswers) -> Trip:
+    """Áp câu trả lời clarify vào Trip; Travel Mode vẫn trống → mặc định. Validate lại (giờ về > giờ đến)."""
+    data = trip.model_dump() | answers.model_dump(exclude_none=True)
+    data["travel_mode"] = data["travel_mode"] or DEFAULT_TRAVEL_MODE
+    return Trip.model_validate(data)
 
 
 MAX_STEPS = 12
@@ -73,7 +127,8 @@ MAX_INVALID = 1  # Place lạ / Draft sai: cho AI làm lại 1 lần (ADR-0001)
 PLAN_PROMPT = """Bạn là trợ lý lập lịch trình du lịch cho người Việt.
 Quy tắc:
 - Chỉ dùng place_id nhận được từ search_places. Không bao giờ tự nghĩ ra địa điểm.
-- Gọi search_places nhiều lần cho từng nhu cầu: ăn sáng, tham quan, cafe, ăn tối, và chỗ ở (kind=cho-o) nếu Trip dài hơn 1 ngày.
+- Gọi search_places nhiều lần cho từng nhu cầu: ăn sáng, ăn trưa, ăn tối (kind=an-uong), tham quan, cafe, và chỗ ở (kind=cho-o) nếu Trip dài hơn 1 ngày.
+- Mỗi ngày bắt buộc đủ 3 bữa, mỗi bữa là một Stop tại Place kind an-uong: sáng bắt đầu 06:00–10:00, trưa 11:00–14:00, tối 17:00–21:00 (bỏ bữa rơi trước giờ tới hoặc sau giờ về). Bữa ăn tính vào số Stop theo Pace; ưu tiên quán ăn no bụng cho bữa trưa/tối, không dùng quán kem/ăn vặt thay bữa chính.
 - Mỗi ngày số Stop và khung giờ theo Pace trong đề bài; sắp Stop theo thứ tự địa lý hợp lý, tránh đi vòng.
 - Tôn trọng Tag bắt buộc, tránh Tag cần tránh. Ngày khả năng mưa cao thì ưu tiên Place trong nhà (outdoor=false).
 - Kiểm tra open_hours của Place khi xếp giờ.
@@ -110,7 +165,8 @@ PLAN_TOOLS = [
 ]
 
 
-def trip_brief(trip: Trip, rain: list[int | None] | None) -> str:
+def trip_brief(trip: Trip, rain: list[int | None] | None, hub: Hub | None = None,
+               user_messages: list[str] = ()) -> str:
     lo, hi = PACE_STOPS[trip.pace]
     start, end = PACE_HOURS[trip.pace]
     when = f", bắt đầu {trip.start_date.isoformat()}" if trip.start_date else ""
@@ -120,14 +176,24 @@ def trip_brief(trip: Trip, rain: list[int | None] | None) -> str:
         f"Số người: {trip.travelers}",
         f"Budget: {vnd(trip.budget)}",
         f"Pace: {lo}-{hi} Stop/ngày, từ {start} đến {end}",
-        f"Travel Mode: {trip.travel_mode}",
+        f"Travel Mode: {trip.travel_mode or DEFAULT_TRAVEL_MODE}",
         f"Tag bắt buộc: {', '.join(trip.required_tags) or 'không'}",
         f"Tag ưu tiên: {', '.join(trip.preferred_tags) or 'không'}",
         f"Tag cần tránh: {', '.join(trip.avoided_tags) or 'không'}",
     ]
+    if trip.arrival_time:
+        lines.append(f"Giờ tới ngày 1: {trip.arrival_time} — Stop đầu ngày 1 bắt đầu sau ít nhất {ARRIVAL_BUFFER_MIN} phút")
+    if trip.departure_time:
+        lines.append(f"Giờ về ngày cuối: {trip.departure_time} — Stop cuối ngày cuối kết thúc trước ít nhất "
+                     f"{DEPARTURE_BUFFER_MIN} phút")
+    if hub:
+        lines.append(f"Ngày 1 xuất phát từ {hub.name}; ngày cuối kết thúc tại {hub.name}")
     if rain:
         chances = ", ".join(f"ngày {i + 1}: {'?' if r is None else str(r) + '%'}" for i, r in enumerate(rain))
         lines.append(f"Khả năng mưa: {chances}")
+    if user_messages:  # nguyên văn để AI không mất ý như "phải đi vườn hoa", "khách sạn rẻ hơn"
+        lines.append("Người dùng đã nói (theo thứ tự, câu sau thắng câu trước):")
+        lines += [f"- {m}" for m in user_messages]
     return "\n".join(lines)
 
 
@@ -149,10 +215,11 @@ def _itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
             "places": {str(i): place_brief(seen[i]) for i in used}}
 
 
-def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] | None) -> Iterator[dict]:
+def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] | None,
+         hub: Hub | None = None, user_messages: list[str] = ()) -> Iterator[dict]:
     seen: dict[int, Place] = {}  # chỉ Place AI đã nhận từ search_places mới hợp lệ
     messages = [{"role": "system", "content": PLAN_PROMPT},
-                {"role": "user", "content": trip_brief(trip, rain)}]
+                {"role": "user", "content": trip_brief(trip, rain, hub, user_messages)}]
     submits = invalid = 0
     last: Itinerary | None = None
 
@@ -163,12 +230,8 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
         calls = msg.tool_calls or []
         if msg.content:
             yield {"type": "thinking", "text": msg.content}
-        assistant = {"role": "assistant", "content": msg.content}
-        if calls:
-            assistant["tool_calls"] = [{"id": c.id, "type": "function",
-                                        "function": {"name": c.function.name, "arguments": c.function.arguments}}
-                                       for c in calls]
-        messages.append(assistant)
+        # gửi lại nguyên message: Gemini 3 cần extra_content.thought_signature trong tool_calls
+        messages.append(msg.model_dump(exclude_none=True))
 
         final = None
         for c in calls:
@@ -192,7 +255,7 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
                 result = json.dumps([_for_llm(p) for p in found], ensure_ascii=False)
             elif c.function.name == "submit_itinerary":
                 try:
-                    itin = build_itinerary(trip, Draft.model_validate(args), seen, rain)
+                    itin = build_itinerary(trip, Draft.model_validate(args), seen, rain, hub)
                 except (ValidationError, InvalidDraft) as e:
                     invalid += 1
                     if invalid > MAX_INVALID:

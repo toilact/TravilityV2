@@ -1,16 +1,21 @@
 import datetime as dt
 import math
 
-from app.domain import WEEKDAYS, Conflict, Day, Draft, Itinerary, Leg, Place, Stop, Trip
+from app.domain import DEFAULT_TRAVEL_MODE, WEEKDAYS, Conflict, Day, Draft, Hub, Itinerary, Leg, Place, Stop, Trip
 
 # ponytail: đường chim bay × 1.3 thay cho quãng đường thật; đổi sang Goong Distance Matrix nếu cần chính xác.
 ROAD_FACTOR = 1.3
 WALK_MAX_KM = 0.8
-SPEED_KMH = {"walk": 4.5, "xe-may": 25, "grab": 25}
+SPEED_KMH = {"walk": 4.5, "xe-may": 25, "grab": 25, "o-to": 25}
 FUEL_PER_KM = 2_000
+CAR_FUEL_PER_KM = 3_500
+CAR_PARKING_PER_DAY = 50_000
 GRAB_BASE, GRAB_PER_KM = 12_000, 9_000
 MOTO_RENT_PER_DAY = 120_000
 RAIN_PCT = 60
+ARRIVAL_BUFFER_MIN = 60  # từ lúc tới đến Stop đầu tiên (nhận phòng, gửi đồ)
+DEPARTURE_BUFFER_MIN = 90  # từ Stop cuối đến giờ về (ra sân bay/bến xe)
+MEALS = (("sáng", "06:00", "10:00"), ("trưa", "11:00", "14:00"), ("tối", "17:00", "21:00"))  # Stop an-uong bắt đầu trong khung
 
 
 class InvalidDraft(Exception):
@@ -21,21 +26,23 @@ def vnd(n: int) -> str:
     return f"{n:,}".replace(",", ".") + "đ"
 
 
-def haversine_km(a: Place, b: Place) -> float:
+def haversine_km(a: Place | Hub, b: Place | Hub) -> float:
     la1, lo1, la2, lo2 = map(math.radians, (a.lat, a.lon, b.lat, b.lon))
     h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
     return 2 * 6371 * math.asin(math.sqrt(h))
 
 
-def make_leg(a: Place, b: Place, mode: str, travelers: int) -> Leg:
+def make_leg(a: Place | Hub, b: Place | Hub, mode: str, travelers: int) -> Leg:
     km = round(haversine_km(a, b) * ROAD_FACTOR, 2)
     if km < WALK_MAX_KM:
         m, cost = "walk", 0
     elif mode == "grab":
         m, cost = "grab", (GRAB_BASE + round(km * GRAB_PER_KM)) * math.ceil(travelers / 4)
-    else:
+    elif mode == "o-to-rieng":
+        m, cost = "o-to", round(km * CAR_FUEL_PER_KM)  # một xe cho cả nhóm (≤ 7 người)
+    else:  # xe-may, xe-may-rieng
         m, cost = "xe-may", round(km * FUEL_PER_KM) * math.ceil(travelers / 2)
-    return Leg(from_place_id=a.id, to_place_id=b.id, distance_km=km,
+    return Leg(from_place_id=getattr(a, "id", None), to_place_id=getattr(b, "id", None), distance_km=km,
                duration_min=max(1, round(km / SPEED_KMH[m] * 60)), mode=m, cost=cost)
 
 
@@ -73,22 +80,26 @@ def _check_draft(trip: Trip, draft: Draft, places: dict[int, Place]) -> None:
 
 
 def build_itinerary(trip: Trip, draft: Draft, places: dict[int, Place],
-                    rain: list[int | None] | None = None) -> Itinerary:
+                    rain: list[int | None] | None = None, hub: Hub | None = None) -> Itinerary:
     _check_draft(trip, draft, places)
     stay = places.get(draft.stay_place_id) if draft.stay_place_id is not None else None
+    mode = trip.travel_mode or DEFAULT_TRAVEL_MODE
     pairs = math.ceil(trip.travelers / 2)  # 2 người/phòng, 2 người/xe
     total = stay.price * pairs * (trip.days - 1) if stay else 0
-    if trip.travel_mode == "xe-may":
+    if mode == "xe-may":
         total += MOTO_RENT_PER_DAY * pairs * trip.days
+    elif mode == "o-to-rieng":
+        total += CAR_PARKING_PER_DAY * trip.days
 
     days = []
+    last = len(draft.days) - 1
     for i, d in enumerate(draft.days):
         stops = [Stop(**s.model_dump(), est_cost=places[s.place_id].price * trip.travelers)
                  for s in sorted(d.stops, key=lambda s: s.start_time)]
-        route = [places[s.place_id] for s in stops]
-        if stay:
-            route = [stay, *route, stay]
-        legs = [make_leg(a, b, trip.travel_mode, trip.travelers) for a, b in zip(route, route[1:])]
+        start = hub if hub and i == 0 else stay
+        end = hub if hub and i == last else stay
+        route = [p for p in (start, *(places[s.place_id] for s in stops), end) if p is not None]
+        legs = [make_leg(a, b, mode, trip.travelers) for a, b in zip(route, route[1:])]
         date = trip.start_date + dt.timedelta(days=i) if trip.start_date else None
         days.append(Day(date=date, stops=stops, legs=legs, rain_chance=rain[i] if rain else None))
         total += sum(s.est_cost for s in stops) + sum(leg.cost for leg in legs)
@@ -102,6 +113,7 @@ def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> lis
     out = []
     if itin.total_cost > trip.budget:
         out.append(Conflict(kind="over_budget", message=f"Vượt Budget {vnd(itin.total_cost - trip.budget)}"))
+    last = len(itin.days) - 1
     for i, day in enumerate(itin.days):
         # Không có ngày đi → chỉ báo đóng cửa khi Place không mở vào khung giờ đó ở bất kỳ thứ nào
         weekdays = [WEEKDAYS[day.date.weekday()]] if day.date else WEEKDAYS
@@ -113,6 +125,21 @@ def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> lis
             if day.rain_chance is not None and day.rain_chance >= RAIN_PCT and p.outdoor:
                 out.append(Conflict(kind="rain_outdoor", day_index=i, place_id=p.id,
                                     message=f"Ngày {i + 1} khả năng mưa {day.rain_chance}%, {p.name} ở ngoài trời"))
+            if i == 0 and trip.arrival_time and _minutes(s.start_time) < _minutes(trip.arrival_time) + ARRIVAL_BUFFER_MIN:
+                out.append(Conflict(kind="before_arrival", day_index=i, place_id=p.id,
+                                    message=f"Ngày 1: {p.name} lúc {s.start_time} nhưng {trip.arrival_time} bạn mới tới"))
+            if (i == last and trip.departure_time
+                    and _minutes(s.start_time) + s.duration_min > _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN):
+                out.append(Conflict(kind="after_departure", day_index=i, place_id=p.id,
+                                    message=f"Ngày {i + 1}: {p.name} kết thúc quá sát giờ về {trip.departure_time}"))
+    for i, day in enumerate(itin.days):
+        for meal, lo, hi in MEALS:
+            if i == 0 and trip.arrival_time and _minutes(hi) <= _minutes(trip.arrival_time) + ARRIVAL_BUFFER_MIN:
+                continue  # bữa trước khi tới nơi
+            if i == last and trip.departure_time and _minutes(lo) >= _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN:
+                continue  # bữa sau khi đã về
+            if not any(places[s.place_id].kind == "an-uong" and lo <= s.start_time < hi for s in day.stops):
+                out.append(Conflict(kind="missing_meal", day_index=i, message=f"Ngày {i + 1} chưa có bữa {meal}"))
     covered = {t for d in itin.days for s in d.stops for t in places[s.place_id].tags}
     for t in trip.required_tags:
         if t not in covered:

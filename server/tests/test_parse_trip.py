@@ -38,3 +38,19 @@ def test_prompt_lists_destinations_and_today():
     parse_trip(client, "m", "...", DESTS, TODAY)
     system = client.calls[0]["messages"][0]["content"]
     assert "2026-09-25" in system and "hoi-an" in system
+
+
+def test_parses_arrival_and_own_car():
+    t = run({"destination": "da-lat", "days": 2, "budget": 1, "travel_mode": "o-to-rieng",
+             "origin_city": "TP.HCM", "arrival_mode": "tu-lai", "arrival_time": "14:00", "departure_time": "16:00"})
+    assert (t.travel_mode, t.origin_city, t.arrival_mode, t.arrival_time, t.departure_time) == (
+        "o-to-rieng", "TP.HCM", "tu-lai", "14:00", "16:00")
+
+
+def test_unstated_travel_mode_stays_none():
+    assert run({"destination": "da-lat", "days": 2, "budget": 1}).travel_mode is None
+
+
+def test_malformed_time_from_llm_is_dropped():
+    t = run({"destination": "da-lat", "days": 2, "budget": 1, "arrival_time": "2pm", "departure_time": "14h"})
+    assert (t.arrival_time, t.departure_time) == (None, None)
