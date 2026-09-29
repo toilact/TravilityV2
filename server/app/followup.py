@@ -2,17 +2,104 @@
 import json
 from collections.abc import Iterator
 
-from app.agent import MAX_STEPS, PLAN_TOOLS, run_search, trip_brief
-from app.domain import INTENT_LABELS, WEEKDAYS, Hub, Itinerary, Place, Trip
-from app.rules import cost_breakdown, vnd
+from pydantic import ValidationError
+
+from app.agent import MAX_INVALID, MAX_STEPS, PLAN_TOOLS, itinerary_event, run_search, trip_brief
+from app.domain import INTENT_LABELS, WEEKDAYS, Draft, DraftDay, DraftStop, Hub, Itinerary, Place, Trip
+from app.replan import to_draft
+from app.rules import InvalidDraft, build_itinerary, cost_breakdown, vnd
 
 FOLLOWUP_PROMPT = """Bạn là trợ lý của một chuyến đi đã có lịch trình. Đọc tin nhắn mới và chọn đúng MỘT việc:
 - Câu hỏi, nhận xét, lời cảm ơn → gọi answer. Chỉ dùng số liệu trong phần "Dữ kiện"; thiếu dữ liệu thì nói rõ app chưa có, không đoán, không bịa số.
+- Muốn đổi, thêm, bớt, dời giờ Stop hoặc đổi chỗ ở → gọi edit_itinerary với ÍT thao tác nhất; Stop không liên quan giữ nguyên. Place mới phải lấy từ search_places (hoặc Place đã có trong lịch). Không đụng Stop "đã ghim".
+  day/stop là chỉ số trong ngoặc [day.stop] của Dữ kiện (tính từ 0, theo lịch HIỆN TẠI). Mỗi ngày vẫn phải đủ 3 bữa.
 Trả lời tiếng Việt, ngắn gọn, thân thiện."""
 
 ANSWER_TOOL = {"type": "function", "function": {
     "name": "answer", "description": "Trả lời người dùng, KHÔNG đổi lịch trình.",
     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}}
+
+EDIT_TOOL = {"type": "function", "function": {
+    "name": "edit_itinerary",
+    "description": "Sửa lịch trình hiện tại bằng thao tác. Gọi lại thì gửi đủ thao tác mới, áp lên lịch HIỆN TẠI.",
+    "parameters": {"type": "object", "properties": {
+        "summary": {"type": "string", "description": "1 câu tiếng Việt nói đã đổi gì"},
+        "ops": {"type": "array", "items": {"type": "object", "properties": {
+            "op": {"type": "string", "enum": ["replace_stop", "remove_stop", "add_stop", "retime_stop", "change_stay"]},
+            "day": {"type": "integer"}, "stop": {"type": "integer"}, "place_id": {"type": "integer"},
+            "start_time": {"type": "string", "description": "HH:MM"}, "duration_min": {"type": "integer"},
+            "reason": {"type": "string"},
+        }, "required": ["op"]}},
+    }, "required": ["ops", "summary"]}}}
+
+
+class InvalidEdit(Exception):
+    pass
+
+
+def apply_ops(itin: Itinerary, ops: list, allowed: set[int]) -> tuple[Draft, list[tuple[int, int]]]:
+    """Áp thao tác lên lịch cũ (chỉ số theo lịch cũ). Stop không bị nhắc giữ nguyên → changed chỉ gồm Stop mới/đổi."""
+    draft = to_draft(itin)
+    days = [[[st, False] for st in d.stops] for d in draft.days]  # [DraftStop, đã đổi?]
+    removed: set[tuple[int, int]] = set()
+
+    def at(o) -> tuple[int, int]:
+        d, s = o.get("day"), o.get("stop")
+        if not (isinstance(d, int) and 0 <= d < len(days) and isinstance(s, int) and 0 <= s < len(days[d])):
+            raise InvalidEdit(f"Không có Stop [{d}.{s}]")
+        if days[d][s][0].pinned:
+            raise InvalidEdit(f"Stop [{d}.{s}] đã ghim, không được đổi")
+        return d, s
+
+    def place(o) -> int:
+        if o.get("place_id") not in allowed:
+            raise InvalidEdit(f"place_id {o.get('place_id')} chưa có trong kết quả search_places")
+        return o["place_id"]
+
+    try:
+        for o in ops:
+            kind = o.get("op") if isinstance(o, dict) else None
+            if kind == "replace_stop":
+                d, s = at(o)
+                old = days[d][s][0]
+                days[d][s] = [DraftStop(place_id=place(o), start_time=o.get("start_time") or old.start_time,
+                                        duration_min=o.get("duration_min") or old.duration_min,
+                                        reason=o.get("reason") or ""), True]
+            elif kind == "retime_stop":
+                d, s = at(o)
+                old = days[d][s][0]
+                days[d][s] = [DraftStop(**old.model_dump() | {
+                    "start_time": o.get("start_time") or old.start_time,
+                    "duration_min": o.get("duration_min") or old.duration_min}), True]
+            elif kind == "remove_stop":
+                removed.add(at(o))
+            elif kind == "add_stop":
+                d = o.get("day")
+                if not (isinstance(d, int) and 0 <= d < len(days)):
+                    raise InvalidEdit(f"Không có ngày {d}")
+                days[d].append([DraftStop(place_id=place(o), start_time=o.get("start_time") or "",
+                                          duration_min=o.get("duration_min") or 60, reason=o.get("reason") or ""),
+                                True])
+            elif kind == "change_stay":
+                draft.stay_place_id = place(o)
+            else:
+                raise InvalidEdit(f"Không có thao tác {kind}")
+    except ValidationError as e:
+        raise InvalidEdit(f"Giờ hoặc thời lượng không hợp lệ: {e.errors()[0]['msg']}") from None
+
+    new_days, changed = [], []
+    for d, stops in enumerate(days):
+        kept = sorted((x for s, x in enumerate(stops) if (d, s) not in removed), key=lambda x: x[0].start_time)
+        if not kept:
+            raise InvalidEdit(f"Ngày {d + 1} không còn Stop nào")
+        changed += [(d, i) for i, (_, ch) in enumerate(kept) if ch]
+        new_days.append(DraftDay(stops=[st for st, _ in kept]))
+    draft.days = new_days
+    return draft, changed
+
+
+def _hard(itin: Itinerary) -> set[tuple]:
+    return {(c.kind, c.day_index, c.place_id) for c in itin.conflicts}
 
 
 def _km_min_cost(legs) -> tuple[float, int, int]:
@@ -60,7 +147,9 @@ def itinerary_facts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> st
 def followup(conn, client, model: str, trip: Trip, itin: Itinerary, places: dict[int, Place], message: str,
              rain: list[int | None] | None, hub: Hub | None, embed_fn) -> Iterator[dict]:
     seen = dict(places)  # Place đang có trong lịch + Place AI tìm thêm
-    tools = [PLAN_TOOLS[0], ANSWER_TOOL]
+    tools = [PLAN_TOOLS[0], ANSWER_TOOL, EDIT_TOOL]
+    invalid = 0
+    last = None  # (Itinerary, changed) hợp lệ gần nhất nhưng còn Conflict mới
     messages = [{"role": "system", "content": FOLLOWUP_PROMPT},
                 {"role": "user", "content": f"{trip_brief(trip, rain, hub)}\n\nDữ kiện lịch trình hiện tại:\n"
                                             f"{itinerary_facts(trip, itin, places)}\n\nTin nhắn mới: {message}"}]
@@ -81,7 +170,29 @@ def followup(conn, client, model: str, trip: Trip, itin: Itinerary, places: dict
             elif c.function.name == "answer":
                 yield {"type": "answer", "text": str(args.get("text", ""))}
                 return
+            elif c.function.name == "edit_itinerary":
+                try:
+                    draft, changed = apply_ops(itin, args.get("ops") or [], set(seen))
+                    draft.summary = str(args.get("summary") or itin.summary)
+                    new = build_itinerary(trip, draft, seen, rain, hub)
+                except (InvalidEdit, InvalidDraft) as e:
+                    invalid += 1
+                    if invalid > MAX_INVALID:
+                        yield {"type": "error", "message": "AI chưa sửa được lịch trình, bạn nói rõ hơn nhé."}
+                        return
+                    result = f"Lỗi: {e}. Gọi lại edit_itinerary với thao tác đúng."
+                else:
+                    extra = [x for x in new.conflicts if (x.kind, x.day_index, x.place_id) not in _hard(itin)]
+                    if not extra or last is not None:  # Conflict mới chỉ được gửi lại sửa 1 lần
+                        yield {**itinerary_event(new, seen), "changed": changed}
+                        return
+                    last = (new, changed)
+                    result = ("Conflict mới: " + "; ".join(x.message for x in extra)
+                              + ". Sửa bằng edit_itinerary (áp lên lịch hiện tại) nếu có thể, không thì gọi lại y nguyên.")
             else:
                 result = f"Lỗi: không có tool {c.function.name}."
             messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
-    yield {"type": "error", "message": "AI chưa xử lý xong tin nhắn, bạn thử lại nhé."}
+    if last:
+        yield {**itinerary_event(last[0], seen), "changed": last[1]}
+    else:
+        yield {"type": "error", "message": "AI chưa xử lý xong tin nhắn, bạn thử lại nhé."}

@@ -220,6 +220,31 @@ def test_question_after_itinerary_is_answered_without_new_version(client, conn, 
     assert row["user_messages"] == ["x"]  # câu hỏi không thành yêu cầu cho lần lập sau
 
 
+def test_edit_changes_only_the_named_stop(client, conn, monkeypatch):
+    h, trip_id, pid = trip_with_itinerary(client, conn, monkeypatch)
+    other = add_place(conn, name="Cafe rẻ", kind="cafe")
+    use_llm(monkeypatch, [reply(("search_places", {"query": "cafe rẻ"})),
+                          reply(("edit_itinerary", {"summary": "Đổi sang quán rẻ hơn", "ops": [
+                              {"op": "replace_stop", "day": 0, "stop": 0, "place_id": other, "reason": "rẻ hơn"}]}))])
+    evs = events(client.post("/trips", json={"message": "đổi quán cafe rẻ hơn", "trip_id": trip_id}, headers=h))
+    assert [e["type"] for e in evs] == ["thinking", "tool_call", "itinerary"]
+    assert evs[-1]["version"] == 2 and evs[-1]["changed"] == [[0, 0]]
+    stop = evs[-1]["itinerary"]["days"][0]["stops"][0]
+    assert (stop["place_id"], stop["start_time"]) == (other, "09:00")
+    assert evs[-1]["itinerary"]["summary"] == "Đổi sang quán rẻ hơn"
+    row = conn.execute("SELECT user_messages FROM trips WHERE id = %s", (trip_id,)).fetchone()
+    assert row["user_messages"] == ["x", "đổi quán cafe rẻ hơn"]
+
+
+def test_bad_edit_twice_is_error_and_no_new_version(client, conn, monkeypatch):
+    h, trip_id, _ = trip_with_itinerary(client, conn, monkeypatch)
+    bad = reply(("edit_itinerary", {"summary": "", "ops": [{"op": "replace_stop", "day": 0, "stop": 0, "place_id": 999}]}))
+    use_llm(monkeypatch, [bad, bad])
+    evs = events(client.post("/trips", json={"message": "đổi", "trip_id": trip_id}, headers=h))
+    assert evs[-1]["type"] == "error"
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 1
+
+
 def test_follow_up_on_other_users_trip_is_404(client, conn, monkeypatch):
     add_place(conn)
     _, evs = ask_first(conn, client, monkeypatch)

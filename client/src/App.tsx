@@ -33,6 +33,7 @@ export default function App() {
   const [tripId, setTripId] = useState<number | null>(null)  // Trip đang mở: tin nhắn sau thuộc Trip này
   const [version, setVersion] = useState<number | null>(null)  // version Itinerary đang xem, gửi kèm Disruption
   const [proposal, setProposal] = useState<Proposal | null>(null)
+  const [changed, setChanged] = useState<[number, number][]>([])  // Stop vừa đổi, tô viền trên Timeline
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
@@ -51,7 +52,7 @@ export default function App() {
         setSearchPins((p) => [...p, ...e.places.filter((x) => !p.some((y) => y.id === x.id))])
         break
       case 'itinerary':
-        setPlaces(e.places); setItinerary(e.itinerary); setVersion(e.version); setSearchPins([])
+        setPlaces(e.places); setItinerary(e.itinerary); setVersion(e.version); setChanged(e.changed ?? []); setSearchPins([])
         add({ role: 'ai', text: e.itinerary.summary })
         break
       case 'answer': add({ role: 'ai', text: e.text }); break
@@ -95,6 +96,7 @@ export default function App() {
   const apply = async (option: number) => {
     const ev: ItineraryEvent | undefined = await call(() => applyProposal(token!, tripId!, proposal!.proposal_id, option))
     if (!ev) return
+    setChanged(proposal!.options?.[option]?.changed ?? [])
     setProposal(null); setSearchPins([])
     setPlaces(ev.places); setItinerary(ev.itinerary); setVersion(ev.version)
     add({ role: 'ai', text: `Đã áp dụng phương án — lịch trình bản ${ev.version}.` })
@@ -116,7 +118,7 @@ export default function App() {
           onSubmit={(a) => answer(clarify.tripId, a)} />}
       </ChatPanel>
       <MapView center={center} searchPins={searchPins} itinerary={itinerary} places={places} />
-      <Timeline itinerary={itinerary} places={places} budget={budget} busy={busy}
+      <Timeline itinerary={itinerary} places={places} budget={budget} busy={busy} changed={changed}
         onDisrupt={tripId != null && version != null ? disrupt : undefined}>
         {proposal && <ProposalPanel proposal={proposal} busy={busy} onApply={apply}
           onClose={() => { setProposal(null); setSearchPins([]) }} />}

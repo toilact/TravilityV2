@@ -114,6 +114,10 @@ def _follow_up(conn, client, prev: dict, itin: Itinerary, dest: dict, message: s
     rain = [d.rain_chance for d in itin.days]
     for ev in followup(conn, client, settings.llm_model, trip, itin, get_places(conn, list(ids)), message,
                        rain, hub_for(dest, trip), llm.embed):
+        if ev["type"] == "itinerary":
+            version = save_itinerary(conn, prev["id"], ev["itinerary"], ev["places"])
+            conn.execute("UPDATE trips SET user_messages = user_messages || %s WHERE id = %s", ([message], prev["id"]))
+            ev = {**ev, "trip_id": prev["id"], "version": version}
         yield sse(ev)
 
 

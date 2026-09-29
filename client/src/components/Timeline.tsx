@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { intentChips, mealOf, vnd, type DisruptionKind, type Itinerary, type Place } from '../api'
 
-export default function Timeline({ itinerary, places, budget, busy = false, onDisrupt, children }: {
-  itinerary: Itinerary | null; places: Record<string, Place>; budget: number | null
+export default function Timeline({ itinerary, places, budget, busy = false, changed = [], onDisrupt, children }: {
+  itinerary: Itinerary | null; places: Record<string, Place>; budget: number | null; changed?: [number, number][]
   busy?: boolean; onDisrupt?: (kind: DisruptionKind, dayIndex: number, stopIndex: number) => void
   children?: ReactNode
 }) {
@@ -46,7 +46,8 @@ export default function Timeline({ itinerary, places, budget, busy = false, onDi
             {day.stops.map((s, j) => {
               const meal = mealOf(places[s.place_id]?.kind, s.start_time)
               return (
-              <li key={j} className="rounded-lg bg-white p-3 text-sm shadow-sm">
+              <li key={j} className={`rounded-lg bg-white p-3 text-sm shadow-sm ${
+                changed.some(([d, k]) => d === i && k === j) ? 'ring-2 ring-amber-400' : ''}`}>
                 {meal && <div className="mb-1 text-xs font-medium text-amber-700">🍜 {meal}</div>}
                 <div className="flex justify-between gap-2">
                   <span className="font-medium">{s.start_time} · {places[s.place_id]?.name}</span>

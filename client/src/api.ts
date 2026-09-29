@@ -26,7 +26,10 @@ export type AgentEvent =
   | { type: 'trip'; trip_id: number; trip: { budget: number }; center: [number, number] }
   | { type: 'tool_call'; name: string; query: string; places: Place[] }
   | { type: 'clarify'; trip_id: number; questions: Question[] }
-  | { type: 'itinerary'; itinerary: Itinerary; places: Record<string, Place>; trip_id: number; version: number }
+  | {
+    type: 'itinerary'; itinerary: Itinerary; places: Record<string, Place>; trip_id: number; version: number
+    changed?: [number, number][]  // [ngày, Stop] vừa đổi khi sửa lịch; lập mới thì không có
+  }
   | { type: 'answer'; text: string }  // trả lời câu hỏi trên Trip đang mở, không đổi lịch trình
   | { type: 'error'; message: string }
 
