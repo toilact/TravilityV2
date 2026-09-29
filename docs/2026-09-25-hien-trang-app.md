@@ -1,85 +1,96 @@
-# Travility — Hiện trạng app sau Plan 1 (2026-09-25)
+# Travility — Hiện trạng app (cập nhật 2026-09-29, sau cá nhân hoá lát 1)
 
-> Ảnh chụp hiện trạng code tại cuối Plan 1, dùng làm phụ lục cho [PRD.md](PRD.md). Các quyết định mới (UI map full, Revision, lộ trình…) nằm trong PRD; mục "Bước tiếp theo" và 3.6 dưới đây đã được PRD thay thế.
+> Ảnh chụp hiện trạng code, dùng làm phụ lục cho [PRD.md](PRD.md). Quyết định và lộ trình nằm trong PRD; tài liệu này chỉ mô tả code **đang chạy thế nào**. Bản đầu viết 2026-09-25 sau Plan 1; bản này thêm lát 1 của [spec cá nhân hoá Trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md) (PR #30).
 
-Thuật ngữ in đậm theo [CONTEXT.md](../CONTEXT.md). Spec: [travility-design.md](superpowers/specs/2026-09-25-travility-design.md).
+Thuật ngữ in đậm theo [CONTEXT.md](../CONTEXT.md). Spec gốc: [travility-design.md](superpowers/specs/2026-09-25-travility-design.md).
 
 ## 1. Tiến độ
 
-- **Plan 1 (nền tảng + AI Trip Planner lõi): xong 13/13 task** trên nhánh `feat/plan-1-core` (15 commit, chưa merge `main`, chưa push).
-- Test: server 58 test pass (pytest + Postgres Docker), client 2 test pass, build OK.
-- **Chưa chạy thử E2E** với LLM thật qua app desktop.
-- **Dữ liệu:** chỉ 10 Place Đà Lạt (spec cần 150–300 Place/Destination × 3 Destination) → lỗ hổng lớn nhất cho demo.
-- **Chưa làm:**
-  - Plan 2 — Revision, Pinned Stop, undo phiên bản, Traveler Profile
-  - Plan 3 — giọng nói, Inspiration Photo
-  - Plan 4 — Google login, quên mật khẩu, cinematic recap, PDF
-  - Plan 5 — demo_cache, golden set, PyInstaller, đủ 3 Destination
-
-### Bước tiếp theo đề xuất
-1. Chạy E2E: `cd desktop && uv run python main.py`, prompt "Đi Đà Lạt 3 ngày, 3 triệu, thích cafe chill".
-2. Push `feat/plan-1-core`, mở PR vào `main`.
-3. Viết Plan 2 (Revision là vệ tinh ưu tiên #1, không được cắt).
-4. Song song: mở rộng `data/places/da-lat.json` lên ~150 Place.
+- **Plan 1** (nền tảng + AI Trip Planner lõi): ✅ merge `main` (PR #1).
+- **Cá nhân hoá lát 1** (PR #30, chờ review): hỏi lại một vòng, giờ đến/về, **Hub**, xe riêng, chat gắn với **Trip** (bản tạm), đủ 3 bữa/ngày, thêm 27 Place.
+- Test: server 106 pass (pytest + Postgres Docker), client 8 pass, build OK.
+- **Đã chạy E2E** với Gemini thật qua app desktop (`gemini-3.5-flash-lite`, embedding `gemini-embedding-001`).
+- **Dữ liệu:** 37 Place Đà Lạt, trong đó 27 gắn `"unverified": true` chờ kiểm chứng (PRD cần ≥ 150/Destination × 3).
+- **Chưa làm:** Revision đầy đủ (chỉ đổi Stop liên quan, Pinned Stop, quay lại version), Traveler Profile, chỗ ở đã đặt, điểm bắt buộc ghé, UI mới, giọng nói, Inspiration Photo, Google login, recap/PDF, demo_cache, đóng gói. Phân công: PRD §12 và GitHub Issues.
 
 ## 2. Luồng hoạt động
 
-### 2.0 Chuẩn bị dữ liệu (ngoài app, chạy một lần)
+### 2.0 Chuẩn bị dữ liệu (ngoài app, chạy lại khi sửa JSON)
 ```
-data/places/da-lat.json ──► scripts/import_places.py ──► Postgres (destinations, places)
-                               │ kiểm tra tag/kind hợp lệ
+data/places/da-lat.json ──► scripts/import_places.py ──► Postgres (destinations + hubs, places)
+                               │ kiểm tra tag/kind/hub hợp lệ
                                └ embedding mỗi Place → vector(768)
 ```
-File JSON là nguồn dữ liệu duy nhất; import chạy lại được (upsert theo `ext_id`).
+File JSON là nguồn dữ liệu duy nhất; import upsert theo `ext_id`. `destination.hubs` (tuỳ chọn) khai báo sân bay/bến xe/ga theo **Arrival Mode**.
 
 ### 2.1 Mở app + đăng nhập
-- `desktop/main.py` mở cửa sổ pywebview với `client/dist/index.html` (hoặc `localhost:5173` khi dev).
+- `desktop/main.py` mở cửa sổ pywebview với `client/dist/index.html` qua HTTP server nội bộ (cổng 42001), hoặc `localhost:5173` khi dev.
 - Chưa có token → màn Login → `POST /auth/register` hoặc `/auth/login` → bcrypt + JWT 7 ngày → client lưu `localStorage`.
 - Có token → màn chính 3 cột: **Chat | Map 3D | Timeline**. Server trả 401 → quay về Login.
+- Lưu ý: WebKit giữ cache bản build cũ ở `~/Library/Caches/python3` → build client xong mà app trắng thì xoá thư mục đó.
 
-### 2.2 Luồng chính: yêu cầu → Itinerary (`server/app/trips.py::_run`)
+### 2.2 Luồng chính: tin nhắn → Itinerary (`server/app/trips.py`)
 ```
-Client streamTrip() — POST /trips (Bearer JWT), đọc SSE
+Client streamTrip(message, tripId) — POST /trips {message, trip_id?} (Bearer JWT), đọc SSE
+  ├─ trip_id của User khác → 404 (trước khi mở stream)
   ├─① "thinking"  "Đang đọc yêu cầu…"
-  ├─② agent.parse_trip — LLM lần 1, bắt buộc tool record_trip
-  │     → Trip {destination, days, budget, travelers, tags, pace, travel_mode}
-  │     (Destination không hỗ trợ / dữ liệu sai → "error", dừng)
-  │     → INSERT trips → "trip" {trip_id, center} ⇒ map bay tới thành phố
-  ├─③ forecast.get_rain_chance — Open-Meteo (chỉ khi có ngày đi trong 16 ngày; lỗi thì bỏ qua)
-  └─④ agent.plan — vòng lặp tool-calling, tối đa 12 lượt
+  ├─② agent.parse_trip — LLM, bắt buộc tool record_trip, đọc TOÀN BỘ tin nhắn của Trip
+  │     → Trip {destination, days, start_date, budget, travelers, tags, pace,
+  │             travel_mode?, origin_city?, arrival_mode?, arrival_time?, departure_time?}
+  │     trường người dùng không nói = để trống; giờ sai định dạng ("2pm") bị bỏ
+  │     tin nhắn tiếp theo: merge_trip giữ câu trả lời cũ, trống thì mặc định (xe-may)
+  │     → INSERT/UPDATE trips (spec, user_messages) → "trip" {trip_id, trip, center}
+  ├─③ Trip mới + missing_questions() khác rỗng?
+  │     → "clarify" {trip_id, questions} rồi ĐÓNG stream          (hỏi tối đa 1 vòng)
+  │       câu hỏi: travel_mode (nếu chưa nói); arrival (nếu có ngày đi mà chưa biết giờ)
+  │       client: POST /trips/{id}/plan {travel_mode?, arrival_*?}  ({} = "Bỏ qua")
+  │         → apply_answers bằng code (không gọi LLM) → 404/409/422 trước khi stream
+  │         → "trip" rồi tiếp tục ④⑤
+  ├─④ forecast.get_rain_chance — Open-Meteo (chỉ khi có ngày đi trong 16 ngày; lỗi thì bỏ qua)
+  └─⑤ agent.plan — vòng lặp tool-calling, tối đa 12 lượt
+        brief: Trip + giờ đến/về + Hub + khả năng mưa + NGUYÊN VĂN tin nhắn người dùng
         search_places(query, kind, tags)
           → embed(query) → pgvector: đúng Destination, đủ tag bắt buộc, loại tag cần tránh, top 8
           → "tool_call" {places} ⇒ pin vàng nhấp nháy trên map
         submit_itinerary(draft)
           → rules.build_itinerary:
                • kiểm tra Place đã được search, đủ số ngày, có Stay nếu > 1 ngày
-               • Leg: chim bay × 1.3; < 0.8 km đi bộ; chi phí Stop/Stay/xe máy/Grab
-               • find_conflicts: vượt Budget, đóng cửa, thiếu tag bắt buộc, mưa + ngoài trời
+               • route mỗi ngày: [Hub ngày 1 | Stay] → Stop… → [Hub ngày cuối | Stay]
+               • Leg: chim bay × 1.3; < 0.8 km đi bộ; xe máy thuê / riêng, ô tô riêng, Grab
+               • find_conflicts: vượt Budget, đóng cửa, thiếu tag, mưa + ngoài trời,
+                 before_arrival, after_departure, missing_meal
           → sai: cho LLM làm lại 1 lần
-          → có Conflict: cho LLM sửa 1 lần, lần submit thứ 2 được chấp nhận
-        → INSERT itineraries (version=1) → "itinerary" {itinerary, places}
+          → có Conflict: gửi lại cho LLM sửa 1 lần, lần submit thứ 2 được chấp nhận
+        → INSERT itineraries (version = max + 1) → "itinerary" {itinerary, places, trip_id, version}
 ```
 
 ### 2.3 Nguyên tắc cần giữ khi mở rộng
 - **LLM chỉ chọn Place và xếp giờ; tiền và Conflict do code tính** (`server/app/rules.py`).
 - **AI chỉ được dùng Place đã có trong kết quả search** (biến `seen` trong `agent.plan`, ADR-0001).
-- SSE có 5 event: `thinking`, `trip`, `tool_call`, `itinerary`, `error`. Thêm event mới thì sửa cả server và `AgentEvent` trong `client/src/api.ts`.
+- **Code quyết định có hỏi lại hay không** (`missing_questions`), không phải LLM; câu trả lời chip áp bằng code (`apply_answers`).
+- SSE có 6 event: `thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `error`. Thêm event mới thì sửa cả server và `AgentEvent` trong `client/src/api.ts`.
+- Agent gửi lại nguyên message của LLM (`model_dump`) — Gemini 3 cần `thought_signature` trong tool_calls.
+- Khung giờ bữa ăn (`MEALS`) có ở cả `rules.py` và `client/src/api.ts` — đổi thì đổi cả hai.
 
 ### 2.4 Chỗ hổng và điểm nối cho tính năng tiếp theo
 | Hiện trạng | Hệ quả / hướng mở rộng |
 |---|---|
-| Mỗi tin nhắn tạo **Trip mới** | Chưa có Revision. Plan 2: `POST /trips/{id}/revisions` tạo version kế tiếp |
-| `version` luôn = 1; DB đã có `UNIQUE(trip_id, version)` | DB sẵn cho lưu nhiều phiên bản và undo |
-| Trường `pinned` có trong Stop nhưng chưa dùng | Dùng cho Pinned Stop |
-| Server có `GET /trips`, `GET /trips/{id}` nhưng client chưa gọi | Tải lại app mất lịch trình; cần màn "Chuyến đi của tôi" |
-| Chi phí Leg theo chim bay × 1.3, map vẽ theo Goong | Số km trên Timeline có thể lệch với đường trên map |
-| Mỗi lần search gọi embedding một lần | Chậm, tốn phí; demo_cache ở Plan 5 |
-| Chưa có bảng `traveler_profiles` | Plan 2 thêm |
-| Dữ liệu 10 Place | AI lặp địa điểm |
+| Tin nhắn tiếp theo **lập lại toàn bộ** lịch trình | Revision đầy đủ (#22): chỉ đổi Stop liên quan |
+| Có nhiều version nhưng UI chỉ hiện bản mới nhất | "Quay lại bản này" (#24) |
+| Trường `pinned` có trong Stop nhưng chưa dùng | Pinned Stop (#25) |
+| `user_messages` lưu trong `trips`; client chưa gọi `GET /trips` | Tải lại app mất lịch trình; lịch sử chat + danh sách Trip (#17, #3) |
+| AI có thể xếp Place `cho-o` làm Stop → tiền phòng tính 2 lần | Từ chối trong `_check_draft` |
+| Kem/ăn vặt (kind `an-uong`) vẫn tính là bữa chính | Tag `an-vat` không tính là bữa |
+| Vượt Budget chỉ báo một dòng, không có bảng chi phí | Gửi breakdown cho AI + hiện trên Timeline |
+| Leg Hub → thành phố tính theo Travel Mode | Tính theo Arrival Mode |
+| Chi phí Leg theo chim bay × 1.3, map vẽ theo Goong | Goong Distance Matrix (#7) |
+| Mỗi lần search gọi embedding một lần; Gemini free giới hạn request/phút | demo_cache (#14); demo nên dùng OpenAI |
+| Chưa có Traveler Profile, chỗ ở đã đặt, điểm bắt buộc ghé | Lát 2–3 của spec cá nhân hoá (#18) |
+| Dữ liệu 37 Place, 27 chưa kiểm chứng | #19 |
 
 ## 3. UI/UX hiện tại
 
-Plan 1 chưa có bước thiết kế UI/UX riêng (không mockup, không design system). UI được dựng theo luồng dữ liệu và yêu cầu "map hiện live các bước là khoảnh khắc wow" trong spec.
+Chưa có bước thiết kế UI/UX riêng (mockup: #2). UI dựng theo luồng dữ liệu và yêu cầu "map hiện live các bước là khoảnh khắc wow".
 
 ### 3.1 Luồng màn hình
 ```
@@ -94,12 +105,13 @@ Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặ
 ```
 ┌──────────────┬─────────────────────────────┬────────────────┐
 │ CHAT (22rem) │      MAP 3D (co giãn)        │ TIMELINE(24rem)│
-│ tiêu đề      │ pin vàng nhấp nháy (search)  │ Tổng chi phí   │
-│ gợi ý mẫu    │ pin số theo màu ngày         │ Budget, Chỗ ở  │
+│ tiêu đề +    │ pin vàng nhấp nháy (search)  │ Tổng chi phí   │
+│ [＋Chuyến mới]│ pin số theo màu ngày         │ Budget, Chỗ ở  │
 │ bong bóng:   │ nhãn "Chỗ ở"                 │ ⚠ Conflict đỏ  │
 │ user/ai/     │ tuyến đường màu theo ngày    │ Ngày n · mưa % │
-│ tool/error   │                              │ Stop: giờ, giá,│
-│ [ô nhập][Gửi]│                              │ lý do          │
+│ tool/error   │ (Leg tới/từ Hub chưa vẽ)     │ Stop: 🍜 bữa,  │
+│ thẻ hỏi lại  │                              │ giờ, giá, lý do│
+│ [ô nhập][Gửi]│                              │                │
 └──────────────┴─────────────────────────────┴────────────────┘
 ```
 
@@ -108,25 +120,24 @@ Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặ
 |---|---|---|---|
 | Chưa gõ | Câu gợi ý mẫu | Đà Lạt, nghiêng 45° | "Lịch trình sẽ hiện ở đây." |
 | Vừa gửi | Bong bóng user, "AI đang lên lịch trình…", khoá nút Gửi | Xoá pin cũ | — |
-| `trip` | — | Bay tới thành phố (zoom 12.5, nghiêng 50°) | Xoá lịch trình cũ |
+| `trip` | Nhớ `tripId` → tin sau thuộc Trip này; hiện nút "Chuyến mới" | Bay tới thành phố | Xoá lịch trình cũ |
+| `clarify` | Thẻ hỏi lại: chip phương tiện, chip phương tiện đến + ô giờ tới/về, "Lên lịch" / "Bỏ qua, cứ lên lịch". Gõ tay vào ô chat cũng được | — | — |
 | `tool_call` | "Đang tìm: … (n kết quả)" | Pin vàng nhấp nháy dồn dần | — |
-| `itinerary` | Tóm tắt của AI | Vẽ tuyến Goong theo màu ngày, pin số; camera bay qua từng Stop (~2 giây/Stop) | Tổng tiền, Conflict, từng ngày/Stop |
-| `error` | Bong bóng đỏ, lời nhắn tiếng Việt | — | — |
+| `itinerary` | Tóm tắt của AI; thẻ hỏi lại biến mất | Vẽ tuyến Goong theo màu ngày, pin số; camera bay qua từng Stop | Tổng tiền, Conflict, từng ngày/Stop, nhãn Bữa sáng/trưa/tối |
+| `error` | Bong bóng đỏ, lời nhắn tiếng Việt; thẻ hỏi lại **vẫn giữ** để sửa/thử lại | — | — |
+| "＋ Chuyến mới" | Xoá chat, thẻ hỏi lại, `tripId` | Xoá pin | Xoá lịch trình |
 
 ### 3.4 Lựa chọn thiết kế có chủ đích
 - **Hiện tiến trình thay vì spinner:** AI chạy 10–30 giây, người xem thấy AI "đang tìm gì".
 - **Luôn có Itinerary kèm Conflict** thay vì báo lỗi.
+- **Hỏi lại tối đa một vòng, luôn bỏ qua được** — không chặn người dùng bằng form.
 - **Lỗi mạng không chặn demo:** Goong lỗi thì vẽ đường thẳng; stream đứt thì báo trong chat.
-- **Tối giản:** tông stone + emerald, Tailwind; `aria-live` cho chat, `role="alert"` cho lỗi đăng nhập.
+- **Tối giản:** tông stone + emerald, Tailwind; `aria-live` cho chat, `aria-pressed` cho chip, `role="alert"` cho lỗi đăng nhập.
 
 ### 3.5 Điểm yếu UX cần xử lý
-1. **Chat chỉ đi một chiều:** mỗi tin nhắn là một chuyến mới (Plan 2 sẽ giải quyết).
-2. **Timeline và map không liên kết:** bấm Stop không bay tới Place, bấm pin không hiện gì; chưa có popup hay ảnh Place (dữ liệu đã có `photo_url`).
-3. **Không bỏ qua được đoạn camera bay:** 15 Stop mất khoảng 30 giây, người dùng không kéo map được trong lúc đó.
-4. **Không có lịch sử chuyến đi:** tải lại app là mất.
-5. **Không có đăng xuất;** bố cục 3 cột cố định, cửa sổ tối thiểu 1100 px.
-6. **Chưa có nhận diện thương hiệu:** không logo, empty state và màn Login còn trơn, chưa đủ "wow" cho demo.
-
-### 3.6 Hướng tiếp theo cho UI
-- **Làm bài bản:** một phiên brainstorm thiết kế riêng để chốt hướng thẩm mỹ, luồng Revision/Pinned, liên kết Timeline ↔ map, màn "Chuyến đi của tôi", rồi dựng mockup để chọn trước khi code.
-- **Hoặc sửa nhanh:** xử lý 6 điểm yếu ở mục 3.5 ngay trên bố cục hiện tại.
+1. **Chưa xem/khôi phục được version cũ;** mỗi tin nhắn lập lại cả lịch trình (#22, #24).
+2. **Timeline và map không liên kết:** bấm Stop không bay tới Place, bấm pin không hiện gì; chưa có popup hay ảnh Place (#4).
+3. **Không bỏ qua được đoạn camera bay;** người dùng không kéo map được trong lúc đó.
+4. **Không có lịch sử chuyến đi / đăng xuất:** tải lại app là mất (#3, #17).
+5. **Bố cục 3 cột cố định,** cửa sổ tối thiểu 1100 px; chưa có logo, empty state trơn (#2, #16).
+6. **Không thấy tiền đi đâu:** Timeline chỉ có tổng và từng Stop, chưa có bảng chi phí theo nhóm.

@@ -8,7 +8,7 @@ App desktop giúp người Việt lên kế hoạch du lịch trong nước bằ
 |---|---|---|
 | 1 | [docs/PRD.md](docs/PRD.md) | Làm gì, vì sao, trạng thái từng tính năng, lộ trình, phân vai, thứ tự cắt |
 | 2 | [CONTEXT.md](CONTEXT.md) | Thuật ngữ — dùng đúng trong code, UI, issue |
-| 3 | [docs/2026-09-25-hien-trang-app.md](docs/2026-09-25-hien-trang-app.md) | Code hiện tại chạy thế nào (luồng SSE, UI) |
+| 3 | [docs/2026-09-25-hien-trang-app.md](docs/2026-09-25-hien-trang-app.md) | Code hiện tại chạy thế nào (luồng SSE, clarify, UI) — cập nhật sau lát 1 |
 | 4 | [docs/adr/](docs/adr/) | Quyết định kiến trúc và lý do |
 | 5 | [docs/superpowers/specs/](docs/superpowers/specs/) | Thiết kế kỹ thuật gốc (Stack, Kiến trúc) + spec cá nhân hoá Trip |
 | 6 | [docs/superpowers/plans/](docs/superpowers/plans/) | Kế hoạch triển khai từng giai đoạn (Plan 1 ✅, cá nhân hoá lát 1 ✅) |
@@ -68,4 +68,3 @@ cd ../desktop && uv sync && uv run python main.py
 - ✅ Plan 1: nền tảng + AI Trip Planner lõi (PR #1).
 - 🟡 Cá nhân hoá Trip lát 1 (PR #30, chờ review): AI hỏi lại một vòng khi thiếu phương tiện / giờ đến–về (event SSE `clarify` → `POST /trips/{id}/plan`), Conflict giờ đến/về, Hub sân bay/bến xe, xe máy/ô tô riêng, chat gắn với Trip (tin nhắn sau gửi `trip_id`, lập lại thành version mới, nút "Chuyến mới"), bắt buộc đủ 3 bữa/ngày, thêm 27 Place Đà Lạt (`unverified`, chờ Quân kiểm chứng).
 - ⏳ Tiếp theo: Revision đầy đủ (#22, #24, #25), lát 2–3 của spec (chỗ ở đã đặt, điểm bắt buộc ghé, Traveler Profile #18), UI mới (#16). Lộ trình: PRD §12.
-- Tài liệu hiện trạng `docs/2026-09-25-hien-trang-app.md` viết trước lát 1 — luồng SSE mới (event `clarify`, `trip_id`) xem spec cá nhân hoá §3.
