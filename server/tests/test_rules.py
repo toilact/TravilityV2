@@ -196,6 +196,16 @@ def test_meal_after_departure_not_required():
     assert meals_missing(itin) == []
 
 
+def test_last_day_end_limits_stops_but_keeps_flight_time():
+    # bay 17:00 nhưng muốn xong hết lúc 13:00: Stop tới 13:00 được, không trừ thêm 90 phút
+    trip = Trip(destination="da-lat", days=1, budget=10**9, travel_mode="grab", departure_time="17:00",
+                last_day_end="13:00")
+    ok = build_itinerary(trip, meal_draft(["07:00", "12:00"], [1, 1]), FOOD)
+    assert ok.conflicts == []  # có bữa sáng + trưa; bữa tối sau 13:00 không bắt buộc
+    late = build_itinerary(trip, meal_draft(["07:00", "12:30"], [1, 1]), FOOD)
+    assert [c.message for c in late.conflicts] == ["Ngày 1: P1 kết thúc sau 13:00 — giờ bạn muốn xong hoạt động"]
+
+
 def test_place_intents_ignores_constraint_tags():
     assert place_intents(["gia-re", "hai-san", "view-dep"]) == {"am-thuc", "thien-nhien"}
 

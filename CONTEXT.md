@@ -70,6 +70,7 @@ _Avoid_: Điểm đi, home
 
 **Arrival / Departure** (Giờ đến / Giờ về):
 Thời điểm tới Destination ngày 1 và rời Destination ngày cuối. Stop phải cách giờ đến ít nhất 60 phút và cách giờ về ít nhất 90 phút.
+Người dùng có thể đặt thêm **giờ xong hoạt động ngày cuối** (vd bay 17:00 nhưng muốn xong lúc 13:00): Stop ngày cuối phải kết thúc trước mốc sớm hơn trong hai mốc này. Đây không phải giờ về.
 _Avoid_: Check-in, check-out
 
 **Arrival Mode** (Phương tiện đến):

@@ -111,6 +111,14 @@ def build_itinerary(trip: Trip, draft: Draft, places: dict[int, Place],
     return itin
 
 
+def last_day_limit(trip: Trip) -> int | None:
+    """Phút muộn nhất Stop ngày cuối được kết thúc: giờ về − 90′ và giờ muốn xong, lấy mốc sớm hơn."""
+    limits = [_minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN] if trip.departure_time else []
+    if trip.last_day_end:
+        limits.append(_minutes(trip.last_day_end))
+    return min(limits) if limits else None
+
+
 def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> list[Conflict]:
     out = []
     if itin.total_cost > trip.budget:
@@ -130,16 +138,20 @@ def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> lis
             if i == 0 and trip.arrival_time and _minutes(s.start_time) < _minutes(trip.arrival_time) + ARRIVAL_BUFFER_MIN:
                 out.append(Conflict(kind="before_arrival", day_index=i, place_id=p.id,
                                     message=f"Ngày 1: {p.name} lúc {s.start_time} nhưng {trip.arrival_time} bạn mới tới"))
-            if (i == last and trip.departure_time
-                    and _minutes(s.start_time) + s.duration_min > _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN):
+            end = _minutes(s.start_time) + s.duration_min
+            if i == last and trip.last_day_end and end > _minutes(trip.last_day_end):
+                out.append(Conflict(kind="after_departure", day_index=i, place_id=p.id,
+                                    message=f"Ngày {i + 1}: {p.name} kết thúc sau {trip.last_day_end}"
+                                            " — giờ bạn muốn xong hoạt động"))
+            elif i == last and trip.departure_time and end > _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN:
                 out.append(Conflict(kind="after_departure", day_index=i, place_id=p.id,
                                     message=f"Ngày {i + 1}: {p.name} kết thúc quá sát giờ về {trip.departure_time}"))
     for i, day in enumerate(itin.days):
         for meal, lo, hi in MEALS:
             if i == 0 and trip.arrival_time and _minutes(hi) <= _minutes(trip.arrival_time) + ARRIVAL_BUFFER_MIN:
                 continue  # bữa trước khi tới nơi
-            if i == last and trip.departure_time and _minutes(lo) >= _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN:
-                continue  # bữa sau khi đã về
+            if i == last and (limit := last_day_limit(trip)) is not None and _minutes(lo) >= limit:
+                continue  # bữa sau khi đã xong / đã về
             if not any(places[s.place_id].kind == "an-uong" and lo <= s.start_time < hi for s in day.stops):
                 out.append(Conflict(kind="missing_meal", day_index=i, message=f"Ngày {i + 1} chưa có bữa {meal}"))
     covered = {t for d in itin.days for s in d.stops for t in places[s.place_id].tags}

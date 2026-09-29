@@ -1,7 +1,8 @@
 from app.domain import WEEKDAYS, Draft, Place, Trip
 import pytest
 
-from app.followup import InvalidEdit, apply_ops, itinerary_facts
+from app.agent import merge_trip, trip_brief
+from app.followup import CHANGE_TOOL, InvalidEdit, apply_ops, changed_trip, itinerary_facts
 from app.rules import build_itinerary, cost_breakdown
 
 WEEK = {d: ["08:00", "22:00"] for d in WEEKDAYS}
@@ -83,3 +84,11 @@ def test_change_stay():
 def test_invalid_edits(op):
     with pytest.raises(InvalidEdit):
         apply_ops(itin(pinned={2}), [op], {1, 2, 3, 9})
+
+
+def test_last_day_end_is_separate_from_flight_time():
+    t = changed_trip(TRIP.model_copy(update={"departure_time": "17:00"}), {"last_day_end": "13:00"})
+    assert (t.departure_time, t.last_day_end) == ("17:00", "13:00")
+    assert "last_day_end" in CHANGE_TOOL["function"]["parameters"]["properties"]["changes"]["properties"]
+    assert "xong mọi hoạt động trước 13:00" in trip_brief(t, None)
+    assert merge_trip(t, TRIP).last_day_end == "13:00"  # tin sau không nhắc lại thì giữ

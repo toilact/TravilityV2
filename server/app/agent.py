@@ -27,7 +27,8 @@ Chỉ điền start_date (YYYY-MM-DD) khi người dùng nói rõ ngày đi.
 Pace: "nhẹ nhàng/thong thả" = thong-tha, "đi nhiều/khám phá hết" = day, còn lại = vua.
 Chỉ dùng Tag trong danh sách cho phép; Tag người dùng nói không muốn → avoided_tags.
 Travel Mode (đi lại trong thành phố): thuê xe máy = xe-may, Grab/taxi = grab, xe máy của mình = xe-may-rieng, ô tô của mình = o-to-rieng.
-Chỉ điền travel_mode, origin_city, arrival_mode, arrival_time, departure_time khi người dùng nói rõ; không đoán.
+Chỉ điền travel_mode, origin_city, arrival_mode, arrival_time, departure_time, last_day_end khi người dùng nói rõ; không đoán.
+departure_time = giờ rời Destination (giờ bay / xe chạy). last_day_end = giờ muốn xong mọi hoạt động ngày cuối ("xong hết lúc 13h để ra sân bay"); hai giờ này khác nhau, đừng gộp.
 Nhiều tin nhắn = cùng một chuyến, theo thứ tự thời gian; tin sau thắng tin trước khi mâu thuẫn."""
 
 
@@ -47,7 +48,9 @@ def _trip_tool(dest_slugs: list[str]) -> dict:
             "origin_city": {"type": "string", "description": "Thành phố người dùng đi từ đó tới"},
             "arrival_mode": {"type": "string", "enum": list(get_args(ArrivalMode))},
             "arrival_time": {"type": "string", "description": "HH:MM, giờ tới Destination ngày 1"},
-            "departure_time": {"type": "string", "description": "HH:MM, giờ rời Destination ngày cuối"},
+            "departure_time": {"type": "string", "description": "HH:MM, giờ rời Destination ngày cuối (giờ bay/xe chạy)"},
+            "last_day_end": {"type": "string",
+                             "description": "HH:MM, giờ muốn xong mọi hoạt động ngày cuối (không phải giờ bay)"},
         }, "required": ["destination", "days", "budget"]},
     }}
 
@@ -68,7 +71,7 @@ def parse_trip(client, model: str, message: str, destinations: dict[str, str], t
         args = json.loads(calls[0].function.arguments)
     except json.JSONDecodeError as e:
         raise TripParseError("AI trả về dữ liệu hỏng, thử lại nhé.") from e
-    for k in ("arrival_time", "departure_time"):
+    for k in ("arrival_time", "departure_time", "last_day_end"):
         if not re.fullmatch(HHMM, str(args.get(k) or "")):
             args.pop(k, None)  # LLM có thể trả "2pm"/"14h" → coi như chưa nói
     if args.get("destination") not in destinations:
@@ -102,7 +105,8 @@ def missing_questions(trip: Trip) -> list[dict]:
     return qs
 
 
-KEEP_IF_UNSAID = ("start_date", "travel_mode", "origin_city", "arrival_mode", "arrival_time", "departure_time")
+KEEP_IF_UNSAID = ("start_date", "travel_mode", "origin_city", "arrival_mode", "arrival_time", "departure_time",
+                  "last_day_end")
 
 
 def merge_trip(old: Trip, new: Trip) -> Trip:
@@ -186,6 +190,8 @@ def trip_brief(trip: Trip, rain: list[int | None] | None, hub: Hub | None = None
     if trip.departure_time:
         lines.append(f"Giờ về ngày cuối: {trip.departure_time} — Stop cuối ngày cuối kết thúc trước ít nhất "
                      f"{DEPARTURE_BUFFER_MIN} phút")
+    if trip.last_day_end:
+        lines.append(f"Ngày cuối xong mọi hoạt động trước {trip.last_day_end} (Stop cuối phải kết thúc trước giờ này)")
     if hub:
         lines.append(f"Ngày 1 xuất phát từ {hub.name}; ngày cuối kết thúc tại {hub.name}")
     if rain:

@@ -53,6 +53,8 @@ class Trip(BaseModel):
     arrival_mode: ArrivalMode | None = None
     arrival_time: str | None = Field(default=None, pattern=HHMM)
     departure_time: str | None = Field(default=None, pattern=HHMM)
+    # giờ muốn xong mọi hoạt động ngày cuối (vd bay 17:00 nhưng xong lúc 13:00 để ra sân bay sớm)
+    last_day_end: str | None = Field(default=None, pattern=HHMM)
 
     @field_validator("required_tags", "preferred_tags", "avoided_tags")
     @classmethod
