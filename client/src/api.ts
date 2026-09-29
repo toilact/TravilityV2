@@ -28,6 +28,14 @@ export type AgentEvent =
   | { type: 'itinerary'; itinerary: Itinerary; places: Record<string, Place>; trip_id: number; version: number }
   | { type: 'error'; message: string }
 
+// Khớp MEALS ở server/app/rules.py: Stop an-uong bắt đầu trong khung giờ = bữa đó
+const MEALS: [string, string, string][] = [['Bữa sáng', '06:00', '10:00'], ['Bữa trưa', '11:00', '14:00'], ['Bữa tối', '17:00', '21:00']]
+
+export function mealOf(kind: string | undefined, startTime: string): string | null {
+  if (kind !== 'an-uong') return null
+  return MEALS.find(([, lo, hi]) => lo <= startTime && startTime < hi)?.[0] ?? null
+}
+
 export type Clarify = { tripId: number; questions: Question[] }
 
 /** Thẻ hỏi lại chỉ mất khi đã có lịch trình — /plan lỗi (422, AI lỗi) thì giữ để người dùng sửa hoặc thử lại. */
