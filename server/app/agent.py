@@ -207,6 +207,19 @@ def _for_llm(p: Place) -> dict:
             "outdoor": p.outdoor, "open_hours": p.open_hours, "lat": round(p.lat, 4), "lon": round(p.lon, 4)}
 
 
+def run_search(conn, trip: Trip, embed_fn, args: dict, seen: dict[int, Place]) -> tuple[dict, str]:
+    """Tool search_places: thêm kết quả vào `seen`, trả (event tool_call, kết quả cho LLM)."""
+    query = str(args.get("query", ""))
+    found = search_places(
+        conn, trip.destination, embed_fn([query])[0],
+        kind=args.get("kind") if args.get("kind") in KINDS else None,
+        must_have_tags=[t for t in (args.get("must_have_tags") or []) if t in TAGS],
+        exclude_tags=trip.avoided_tags)
+    seen.update({p.id: p for p in found})
+    return ({"type": "tool_call", "name": "search_places", "query": query, "places": [place_brief(p) for p in found]},
+            json.dumps([_for_llm(p) for p in found], ensure_ascii=False))
+
+
 def itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
     used = {s.place_id for d in itin.days for s in d.stops}
     if itin.stay_place_id is not None:
@@ -243,16 +256,8 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
             if not isinstance(args, dict):
                 result = "Lỗi: arguments không phải JSON object hợp lệ."
             elif c.function.name == "search_places":
-                query = str(args.get("query", ""))
-                found = search_places(
-                    conn, trip.destination, embed_fn([query])[0],
-                    kind=args.get("kind") if args.get("kind") in KINDS else None,
-                    must_have_tags=[t for t in (args.get("must_have_tags") or []) if t in TAGS],
-                    exclude_tags=trip.avoided_tags)
-                seen.update({p.id: p for p in found})
-                yield {"type": "tool_call", "name": "search_places", "query": query,
-                       "places": [place_brief(p) for p in found]}
-                result = json.dumps([_for_llm(p) for p in found], ensure_ascii=False)
+                ev, result = run_search(conn, trip, embed_fn, args, seen)
+                yield ev
             elif c.function.name == "submit_itinerary":
                 try:
                     itin = build_itinerary(trip, Draft.model_validate(args), seen, rain, hub)

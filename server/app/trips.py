@@ -12,11 +12,12 @@ from pydantic import BaseModel, Field, ValidationError
 from app import forecast, llm
 from app.agent import (TripParseError, UnsupportedDestination, apply_answers, merge_trip, missing_questions,
                        parse_trip, plan)
-from app.domain import Hub, Trip, TripAnswers
+from app.domain import Hub, Itinerary, Trip, TripAnswers
+from app.followup import followup
 from app.auth import current_user
 from app.config import settings
 from app.db import connect, get_conn
-from app.places import list_destinations
+from app.places import get_places, list_destinations
 
 logger = logging.getLogger(__name__)
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -100,11 +101,31 @@ def _parse_input(user_messages: list[str]) -> str:
     return "\n".join(f"Tin nhắn {i + 1}: {m}" for i, m in enumerate(user_messages))
 
 
+def latest_itinerary(conn, trip_id: int) -> tuple[int, Itinerary] | None:
+    row = conn.execute("SELECT version, data FROM itineraries WHERE trip_id = %s ORDER BY version DESC LIMIT 1",
+                       (trip_id,)).fetchone()
+    return (row["version"], Itinerary.model_validate(row["data"]["itinerary"])) if row else None
+
+
+def _follow_up(conn, client, prev: dict, itin: Itinerary, dest: dict, message: str):
+    """Trip đã có lịch trình: trả lời / sửa, không lập lại từ đầu (#22)."""
+    trip = Trip.model_validate(prev["spec"])
+    ids = {s.place_id for d in itin.days for s in d.stops} | ({itin.stay_place_id} - {None})
+    rain = [d.rain_chance for d in itin.days]
+    for ev in followup(conn, client, settings.llm_model, trip, itin, get_places(conn, list(ids)), message,
+                       rain, hub_for(dest, trip), llm.embed):
+        yield sse(ev)
+
+
 def _run(conn, user_id: int, message: str, prev: dict | None = None):
     dests = {d["slug"]: d for d in list_destinations(conn)}
     client = llm.chat_client()
     user_messages = [*(prev["user_messages"] if prev else []), message]
     yield sse({"type": "thinking", "text": "Đang đọc yêu cầu của bạn…"})
+    latest = latest_itinerary(conn, prev["id"]) if prev else None
+    if latest:
+        yield from _follow_up(conn, client, prev, latest[1], dests[prev["spec"]["destination"]], message)
+        return
     try:
         trip = parse_trip(client, settings.llm_model, _parse_input(user_messages),
                           {slug: d["name"] for slug, d in dests.items()},

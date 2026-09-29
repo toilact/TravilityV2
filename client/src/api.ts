@@ -27,6 +27,7 @@ export type AgentEvent =
   | { type: 'tool_call'; name: string; query: string; places: Place[] }
   | { type: 'clarify'; trip_id: number; questions: Question[] }
   | { type: 'itinerary'; itinerary: Itinerary; places: Record<string, Place>; trip_id: number; version: number }
+  | { type: 'answer'; text: string }  // trả lời câu hỏi trên Trip đang mở, không đổi lịch trình
   | { type: 'error'; message: string }
 
 // Khớp MEALS ở server/app/rules.py: Stop an-uong bắt đầu trong khung giờ = bữa đó

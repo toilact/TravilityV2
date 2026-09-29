@@ -54,6 +54,7 @@ export default function App() {
         setPlaces(e.places); setItinerary(e.itinerary); setVersion(e.version); setSearchPins([])
         add({ role: 'ai', text: e.itinerary.summary })
         break
+      case 'answer': add({ role: 'ai', text: e.text }); break
       case 'error': add({ role: 'error', text: e.message }); break
     }
   }

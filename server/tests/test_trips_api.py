@@ -200,15 +200,24 @@ def test_follow_up_never_asks_twice(client, conn, monkeypatch):
     assert evs[-1]["type"] == "itinerary" and evs[1]["trip"]["travel_mode"] == "xe-may"
 
 
-def test_follow_up_after_itinerary_is_next_version(client, conn, monkeypatch):
-    pid = add_place(conn)
+def trip_with_itinerary(client, conn, monkeypatch):
+    pid = add_place(conn, name="Cà phê Tùng", kind="cafe")
     use_llm(monkeypatch, happy(pid))
     h = auth(client)
-    trip_id = events(client.post("/trips", json={"message": "x"}, headers=h))[-1]["trip_id"]
-    use_llm(monkeypatch, happy(pid))
-    evs = events(client.post("/trips", json={"message": "rẻ hơn", "trip_id": trip_id}, headers=h))
-    assert evs[-1]["version"] == 2
-    assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 2
+    return h, events(client.post("/trips", json={"message": "x"}, headers=h))[-1]["trip_id"], pid
+
+
+def test_question_after_itinerary_is_answered_without_new_version(client, conn, monkeypatch):
+    h, trip_id, _ = trip_with_itinerary(client, conn, monkeypatch)
+    fake = FakeClient([reply(("answer", {"text": "Tổng quãng đường 0.0 km."}))])
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    evs = events(client.post("/trips", json={"message": "tổng quãng đường bao nhiêu", "trip_id": trip_id}, headers=h))
+    assert [e["type"] for e in evs] == ["thinking", "answer"]
+    assert evs[-1]["text"] == "Tổng quãng đường 0.0 km."
+    assert "Cà phê Tùng" in fake.calls[0]["messages"][1]["content"]  # LLM nhận lịch trình hiện tại
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 1
+    row = conn.execute("SELECT user_messages FROM trips WHERE id = %s", (trip_id,)).fetchone()
+    assert row["user_messages"] == ["x"]  # câu hỏi không thành yêu cầu cho lần lập sau
 
 
 def test_follow_up_on_other_users_trip_is_404(client, conn, monkeypatch):

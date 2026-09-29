@@ -156,3 +156,13 @@ def intent_retention(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> t
     hit = {i: i in covered for i in w}
     total = sum(w.values())
     return hit, (round(sum(w[i] for i in w if hit[i]) / total, 2) if total else None)
+
+
+def cost_breakdown(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> dict[str, int]:
+    """Chia total_cost theo nhóm; di_chuyen = Leg + tiền thuê xe/gửi xe (phần còn lại)."""
+    food = sum(s.est_cost for d in itin.days for s in d.stops if places[s.place_id].kind in ("an-uong", "cafe"))
+    stops = sum(s.est_cost for d in itin.days for s in d.stops)
+    stay = places[itin.stay_place_id].price * math.ceil(trip.travelers / 2) * (trip.days - 1) \
+        if itin.stay_place_id is not None else 0
+    return {"an_uong": food, "tham_quan": stops - food, "cho_o": stay,
+            "di_chuyen": itin.total_cost - stops - stay}
