@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from app.domain import Draft, Place, Trip
+from app.domain import Draft, Hub, Place, Trip
 from app.rules import InvalidDraft, build_itinerary, is_open, make_leg
 
 WEEK = {d: ["08:00", "17:00"] for d in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]}
@@ -14,9 +14,9 @@ def P(id, kind="tham-quan", price=0, lat=11.94, lon=108.44, outdoor=False, tags=
                  tags=list(tags))
 
 
-def draft(days, stay=None):
+def draft(days, stay=None, start="09:00"):
     return Draft.model_validate({"stay_place_id": stay, "summary": "", "days": [
-        {"stops": [{"place_id": pid, "start_time": "09:00", "duration_min": 60} for pid in day]}
+        {"stops": [{"place_id": pid, "start_time": start, "duration_min": 60} for pid in day]}
         for day in days]})
 
 
@@ -93,3 +93,62 @@ def test_missing_required_tag():
     trip = Trip(destination="da-lat", days=1, budget=10**9, required_tags=["an-chay"], travel_mode="grab")
     itin = build_itinerary(trip, draft([[1]]), {1: P(1, tags=["cafe-chill"])})
     assert [c.kind for c in itin.conflicts] == ["missing_tag"]
+
+
+HUB = Hub(name="Sân bay Liên Khương", lat=11.75, lon=108.37)
+STAY = {9: P(9, kind="cho-o", hours={})}
+
+
+def test_unset_travel_mode_defaults_to_rented_motorbike():
+    trip = Trip(destination="da-lat", days=1, budget=10**9)
+    assert build_itinerary(trip, draft([[1]]), {1: P(1)}).total_cost == 120_000
+
+
+def test_own_motorbike_has_no_rent():
+    trip = Trip(destination="da-lat", days=1, travelers=2, budget=10**9, travel_mode="xe-may-rieng")
+    assert build_itinerary(trip, draft([[1]]), {1: P(1)}).total_cost == 0
+
+
+def test_own_car_leg_is_one_car_fuel():
+    leg = make_leg(P(1), P(2, lat=12.04), "o-to-rieng", 5)
+    assert leg.mode == "o-to"
+    assert leg.cost == round(leg.distance_km * 3_500)
+
+
+def test_own_car_pays_parking_per_day():
+    trip = Trip(destination="da-lat", days=2, travelers=5, budget=10**9, travel_mode="o-to-rieng")
+    itin = build_itinerary(trip, draft([[1], [1]], stay=9), {1: P(1), **STAY})
+    assert itin.total_cost == 2 * 50_000
+
+
+def test_hub_starts_first_day_and_ends_last_day():
+    trip = Trip(destination="da-lat", days=2, budget=10**9, travel_mode="grab")
+    itin = build_itinerary(trip, draft([[1], [2]], stay=9), {1: P(1), 2: P(2), **STAY}, hub=HUB)
+    d1, d2 = itin.days
+    assert (d1.legs[0].from_place_id, d1.legs[-1].to_place_id) == (None, 9)
+    assert (d2.legs[0].from_place_id, d2.legs[-1].to_place_id) == (9, None)
+    assert d1.legs[0].mode == "grab" and d1.legs[0].distance_km > 20
+
+
+def test_hub_without_stay_one_day():
+    trip = Trip(destination="da-lat", days=1, budget=10**9, travel_mode="grab")
+    legs = build_itinerary(trip, draft([[1]]), {1: P(1)}, hub=HUB).days[0].legs
+    assert [(leg.from_place_id, leg.to_place_id) for leg in legs] == [(None, 1), (1, None)]
+
+
+def test_late_arrival_still_returns_itinerary_with_conflict():
+    trip = Trip(destination="da-lat", days=1, budget=10**9, travel_mode="grab", arrival_time="20:00")
+    itin = build_itinerary(trip, draft([[1]]), {1: P(1)})  # Stop 09:00
+    assert [c.kind for c in itin.conflicts] == ["before_arrival"]
+    assert "20:00" in itin.conflicts[0].message
+
+
+def test_stop_after_arrival_buffer_is_fine():
+    trip = Trip(destination="da-lat", days=1, budget=10**9, travel_mode="grab", arrival_time="14:00")
+    assert build_itinerary(trip, draft([[1]], start="15:00"), {1: P(1)}).conflicts == []
+
+
+def test_stop_too_close_to_departure_on_last_day():
+    trip = Trip(destination="da-lat", days=2, budget=10**9, travel_mode="grab", departure_time="11:00")
+    itin = build_itinerary(trip, draft([[1], [1]], stay=9), {1: P(1), **STAY})  # 09:00–10:00 > 11:00 − 90'
+    assert [(c.kind, c.day_index) for c in itin.conflicts] == [("after_departure", 1)]
