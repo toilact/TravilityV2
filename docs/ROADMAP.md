@@ -1,0 +1,146 @@
+# Travility — Roadmap
+
+Cập nhật: **2026-09-29**, sau khi merge lát A+B "Revision giữ mục đích" vào `main`.
+Nguồn: [PRD](PRD.md) (§5 yêu cầu, §12 lộ trình, §13 thứ tự cắt), [hiện trạng code](2026-09-25-hien-trang-app.md), GitHub Issues #2–#41.
+Bảng theo dõi trên GitHub (tự tick khi đóng issue): **issue #42** (đã ghim).
+
+Ký hiệu: `[x]` đã xong · `[ ]` chưa làm · 🟡 làm dở (ghi rõ còn thiếu gì) · ~~gạch~~ đã cắt.
+Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần).
+
+## Tổng quan
+
+| Nhóm chức năng | Xong | Tổng |
+|---|---|---|
+| 1. Nền tảng & tài khoản | 4 | 7 |
+| 2. Lập Trip & Itinerary (lõi) | 12 | 14 |
+| 3. Revision, Pinned, version | 1 | 6 |
+| 4. Revision giữ mục đích (§5.11) | 2 | 7 |
+| 5. Cá nhân hoá Trip | 1 | 3 |
+| 6. Stay, đường đi, chi phí | 6 | 9 |
+| 7. UI/UX mới | 1 | 8 |
+| 8. Dữ liệu Place | 1 | 5 |
+| 9. Giọng nói, recap, PDF | 0 | 4 |
+| 10. Chất lượng & demo | 1 | 5 |
+
+---
+
+## 1. Nền tảng & tài khoản
+- [x] Server FastAPI + Postgres/pgvector trong Docker, client React + MapLibre (Goong), app desktop pywebview
+- [x] Đăng ký / đăng nhập email + mật khẩu (bcrypt, JWT 7 ngày)
+- [x] Mỗi User chỉ thấy Trip của mình (Trip người khác → 404)
+- [x] LLM đổi được provider: Gemini khi dev, OpenAI khi demo (ADR-0003)
+- [ ] Đăng xuất — #3 (Nhật)
+- [ ] Đăng nhập Google — #12 (Tùng) · *cắt đầu tiên nếu trễ*
+- [ ] Quên mật khẩu qua email — #13 (Tùng) · *cắt đầu tiên nếu trễ*
+
+## 2. Lập Trip & Itinerary (lõi)
+- [x] Hiểu câu tự nhiên → Trip (Destination, số ngày, ngày đi, số người, Budget, Tag, Pace, Travel Mode)
+- [x] Destination chưa hỗ trợ → báo danh sách đang có
+- [x] AI tìm Place bằng pgvector (đúng Destination, đủ Tag bắt buộc, loại Tag tránh)
+- [x] AI chỉ dùng Place có trong database; Place lạ → bắt làm lại (ADR-0001)
+- [x] Stream tiến trình qua SSE (`thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `error`)
+- [x] Thiếu phương tiện / giờ đến–về → hỏi lại một vòng bằng chip
+- [x] Luôn trả Itinerary kèm Conflict thay vì báo lỗi; Conflict gửi lại AI sửa 1 lần
+- [x] Conflict: vượt Budget, đóng cửa, thiếu Tag, mưa + ngoài trời, trước giờ đến, sau giờ về, thiếu bữa
+- [x] Bắt buộc đủ 3 bữa/ngày, nhãn Bữa sáng/trưa/tối trên Timeline
+- [x] Mỗi Stop có lý do chọn
+- [x] Forecast Open-Meteo (ngày đi trong 16 ngày tới)
+- [x] Lưu Trip + mọi version Itinerary trong DB
+- 🟡 Mở lại Trip cũ — server có `GET /trips/{id}`, client chưa gọi (tải lại app là mất lịch trình) — #3, #17
+- [ ] Chặn AI xếp Place loại chỗ ở làm Stop (hiện tiền phòng có thể bị tính 2 lần) — #39 (Thành)
+
+## 3. Revision, Pinned Stop, phiên bản (§5.4 — **không được cắt**)
+- [x] Chat gắn với Trip đang mở + nút "Chuyến mới" (bản tạm: mỗi tin nhắn **lập lại cả lịch trình** thành version mới)
+- [ ] Revision thật: chỉ đổi Stop liên quan đến yêu cầu — #22 (Thành)
+- [ ] Pinned Stop: ghim/bỏ ghim + từ chối Draft đụng Stop đã ghim — #25 (Thành)
+- [ ] Dãy version `v1 · v2 · v3` trên Timeline + "Quay lại bản này" — #24 (Thành)
+- [ ] Lịch sử chat theo Trip, mở lại thấy hội thoại — #17 (Thành)
+- [ ] Tô sáng / animate Stop đã đổi sau Revision — (Nhật)
+
+## 4. Revision giữ mục đích (§5.11, ý tưởng Local Explorer AI)
+Spec: [revision-giu-muc-dich](superpowers/specs/2026-09-29-revision-giu-muc-dich-design.md) · [ADR-0006](adr/0006-thay-the-theo-muc-dich-bang-code.md)
+- [x] **Lát A** — #31 — Intent + mức giữ mục đích R: chip ✓/✗ và "Giữ mục đích N%" trên Timeline
+- [x] **Lát B** — #31 — "Báo đóng cửa" / "Đổi chỗ khác" trên Stop → tối đa 3 Proposal (code, không LLM) + giải thích + Δ chi phí / Δ phút / R → "Áp dụng" tạo version mới; bảng `proposals` kiêm log feedback
+- [ ] **Lát C** — #32 — Disruption "Giả sử mưa" (một ngày) + "Tôi trễ 15/30/60′" (Thành, T5–T6) · *không được cắt*
+- [ ] **Lát D** — #33 — Bản đồ theo thời điểm: TimeSlider, Place tô màu mở + đến kịp / xa / đóng, thêm Place vào lúc HH:MM (Tùng, T6) · *cắt thứ 5*
+- [ ] **Lát E1** — #34 — ~40 kịch bản cố định, bảng so sánh B0 / B1 / B2 (`uv run python -m eval.run`) (Quân, T5–T6)
+- [ ] **Lát E2** — #35 — Rubric, gán nhãn 0–3, XGBRanker, chỉ bật khi thắng hàm điểm tay (NDCG@5) (Quân, T7–T8) · *cắt thứ 3*
+- [ ] **Lát F** — #36 — Chat → Disruption ("ngày 2 mưa thì sao") (Thành, T9)
+
+Việc nhỏ còn nợ của lát A+B — #37:
+- [ ] Áp dụng bị 409 → đóng panel và tải lại bản mới nhất
+- [ ] Spec Trip đổi số ngày sau khi lưu version → báo sự cố trả 500 (chỉ gặp khi gọi API thẳng)
+- [ ] Ghi luật "kịp giờ" (nới hơn spec §4.3) và mã `INTENT_LOST` vào spec
+- [ ] Thêm test: Stop kế tiếp quá xa, Stay/Hub nhiều ngày, `NEW_CONFLICT`
+- [ ] Pin màu riêng cho Place thay thế (hiện dùng pin vàng)
+
+## 5. Cá nhân hoá Trip
+Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md)
+- [x] **Lát 1** — hỏi lại một vòng, giờ đến/về, Hub (sân bay/bến xe), xe máy/ô tô riêng
+- [ ] **Lát 2** — Chỗ ở đã đặt + điểm bắt buộc ghé — #38 (Thành, T4)
+- [ ] **Lát 3** — Traveler Profile: màn Hồ sơ + chép vào Trip mới — #18 (Thành) · onboarding #23 (Nhật, *cắt thứ 4*)
+
+## 6. Stay, đường đi, chi phí
+- [x] Một Stay cho cả Trip, là điểm đầu/cuối mỗi ngày
+- [x] Tiền Stay theo đêm × số phòng
+- [x] Leg giữa các điểm; Leg ngắn thì đi bộ
+- [x] Chi phí xe máy thuê / Grab / xe riêng / ô tô riêng
+- [x] Budget = ăn + vé + Stay + Leg (không gồm liên tỉnh, ADR-0005)
+- [x] Leg Hub → thành phố ngày đầu/cuối
+- [ ] Tag loại chỗ ở (khách sạn, homestay, hostel, resort) + đổi Stay qua Revision — #26 (Thành)
+- [ ] Km thật bằng Goong Distance Matrix + Conflict "không kịp di chuyển" — #7 (Thành, T4)
+- [ ] Bảng chi phí theo nhóm trên Timeline (ăn / vé / Stay / di chuyển) — #40 (Nhật)
+
+## 7. UI/UX mới (§7)
+- [x] Bố cục 3 cột: chat · map 3D Goong · Timeline; pin tìm kiếm, tuyến theo màu ngày
+- [ ] Mockup UI mới: map toàn màn hình, panel nổi, tông ấm, logo — #2 (Nhật)
+- [ ] Làm lại layout theo mockup — #16 (Nhật)
+- [ ] Rail + danh sách Trip + mở lại Trip gần nhất — #3 (Nhật)
+- [ ] Map ↔ Timeline hai chiều, popup Place (ảnh, giá, giờ mở, nút Ghim) — #4 (Nhật)
+- [ ] Nút "Xem hành trình" (camera bay qua Stop, dừng được) — #4 (Nhật)
+- [ ] Bỏ qua được đoạn camera bay, kéo map trong lúc bay
+- [ ] Empty state có ảnh + câu gợi ý bấm được
+
+## 8. Dữ liệu Place
+- [x] Import JSON → DB + embedding (`scripts/import_places`)
+- 🟡 Đà Lạt: **37 / 150** Place, 27 chưa kiểm chứng — #19 (Quân, T4) · *không được cắt*
+- [ ] Script thu thập bán tự động (OSM/Goong → AI nháp → JSON) — #5 (Quân)
+- [ ] Đà Nẵng – Hội An ≥ 150 Place — #20 (Quân, T8)
+- [ ] Ảnh Place lưu local phía server — #41 (Quân)
+- ~~Hà Nội / Destination thứ 3 — #21~~ (cắt 2026-09-29)
+
+## 9. Giọng nói, recap, PDF
+- [ ] Nhập bằng giọng nói: mic → STT → chat — #8 (Nhật, T5)
+- [ ] TTS đọc tóm tắt + nút tắt tiếng — #9 (Nhật, T5)
+- [ ] Xuất PDF Itinerary + bảng chi phí — #11 (Tùng, T8)
+- [ ] Cinematic recap có thuyết minh — #28 (Nhật, T8) · *cắt thứ 2*
+- ~~Inspiration Photo → Suggestion trên map — #10, #27~~ (cắt 2026-09-29, nhường chỗ §5.11)
+
+## 10. Chất lượng & demo
+- [x] Test tự động: server 131, client 13; đã chạy E2E với Gemini thật
+- [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
+- [ ] demo_cache: ghi và phát lại phản hồi để demo khi mất mạng — #14 (Tùng, T10)
+- [ ] Đóng gói PyInstaller cho app desktop — #15 (Tùng, T10)
+- [ ] Kịch bản demo + diễn tập (có một lần tắt mạng) — #29 (Thành, T10)
+
+---
+
+## Lộ trình theo tuần (PRD §12)
+
+| Tuần | Nội dung | Trạng thái |
+|---|---|---|
+| T1 | Nền tảng + AI Trip Planner lõi; cá nhân hoá lát 1 | ✅ |
+| T2–3 | Revision + Pinned + version + Traveler Profile; UI mới | ⏳ |
+| T4 | Đà Lạt 150 Place; Goong Distance Matrix + "không kịp" | ⏳ |
+| T4–T6 | Revision giữ mục đích lát A–D | 🟡 A, B xong (làm sớm) |
+| T5 | Giọng nói | ⏳ |
+| T5–T8 | Đánh giá B0/B1/B2 + ranker (lát E) | ⏳ |
+| T7 | Google login + quên mật khẩu | ⏳ |
+| T8 | Recap + PDF; Destination thứ 2 | ⏳ |
+| T9 | Chuyển OpenAI, golden set, chat → Disruption (lát F), polish | ⏳ |
+| T10 | demo_cache, PyInstaller, diễn tập demo | ⏳ |
+
+## Việc cần làm ngay
+1. #22, #24, #25 — Revision thật, version, Pinned (đường găng, không được cắt).
+2. #19 — Đà Lạt lên 150 Place đã kiểm chứng (37 hiện tại quá ít cho engine thay thế).
+3. #2 → #16 — chốt mockup rồi làm UI mới.
