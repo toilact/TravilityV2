@@ -28,6 +28,7 @@ export default function App() {
   const [places, setPlaces] = useState<Record<string, Place>>({})
   const [budget, setBudget] = useState<number | null>(null)
   const [clarify, setClarify] = useState<Clarify | null>(null)
+  const [tripId, setTripId] = useState<number | null>(null)  // Trip đang mở: tin nhắn sau thuộc Trip này
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
@@ -37,7 +38,7 @@ export default function App() {
     setClarify((c) => clarifyAfter(c, e))
     switch (e.type) {
       case 'thinking': add({ role: 'ai', text: e.text }); break
-      case 'trip': setCenter(e.center); setBudget(e.trip.budget); setItinerary(null); break
+      case 'trip': setTripId(e.trip_id); setCenter(e.center); setBudget(e.trip.budget); setItinerary(null); break
       case 'tool_call':
         add({ role: 'tool', text: `Đang tìm: ${e.query} (${e.places.length} kết quả)` })
         setSearchPins((p) => [...p, ...e.places.filter((x) => !p.some((y) => y.id === x.id))])
@@ -65,14 +66,16 @@ export default function App() {
 
   const send = (message: string) => {
     add({ role: 'user', text: message })
-    setClarify(null)  // câu mới = Trip mới, bỏ câu hỏi của Trip cũ
-    return run((on) => streamTrip(token!, message, on))
+    return run((on) => streamTrip(token!, message, tripId, on))
+  }
+  const newTrip = () => {
+    setTripId(null); setChat([]); setClarify(null); setItinerary(null); setSearchPins([]); setBudget(null)
   }
   const answer = (tripId: number, a: Answers) => run((on) => streamPlan(token!, tripId, a, on))
 
   return (
     <div className="grid h-screen grid-cols-[22rem_1fr_24rem] bg-stone-50 text-stone-900">
-      <ChatPanel items={chat} busy={busy} onSend={send}>
+      <ChatPanel items={chat} busy={busy} onSend={send} onNewTrip={tripId != null ? newTrip : undefined}>
         {clarify && <ClarifyCard questions={clarify.questions} busy={busy}
           onSubmit={(a) => answer(clarify.tripId, a)} />}
       </ChatPanel>

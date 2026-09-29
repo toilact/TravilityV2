@@ -83,8 +83,9 @@ async function streamSSE(token: string, path: string, body: unknown, onEvent: (e
   if (!finished) onEvent({ type: 'error', message: 'Kết nối bị ngắt giữa chừng, bạn thử lại nhé.' })
 }
 
-export const streamTrip = (token: string, message: string, onEvent: (e: AgentEvent) => void) =>
-  streamSSE(token, '/trips', { message }, onEvent)
+/** tripId có → tin nhắn tiếp theo của Trip đang mở; null → chuyến mới. */
+export const streamTrip = (token: string, message: string, tripId: number | null, onEvent: (e: AgentEvent) => void) =>
+  streamSSE(token, '/trips', { message, trip_id: tripId }, onEvent)
 
 export const streamPlan = (token: string, tripId: number, answers: Answers, onEvent: (e: AgentEvent) => void) =>
   streamSSE(token, `/trips/${tripId}/plan`, answers, onEvent)

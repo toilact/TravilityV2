@@ -9,13 +9,19 @@ const STYLE: Record<ChatItem['role'], string> = {
   error: 'bg-red-50 text-red-700 border border-red-200',
 }
 
-export default function ChatPanel({ items, busy, onSend, children }: {
-  items: ChatItem[]; busy: boolean; onSend: (message: string) => void; children?: ReactNode
+export default function ChatPanel({ items, busy, onSend, onNewTrip, children }: {
+  items: ChatItem[]; busy: boolean; onSend: (message: string) => void; onNewTrip?: () => void; children?: ReactNode
 }) {
   const [text, setText] = useState('')
   return (
     <aside className="flex min-h-0 flex-col border-r border-stone-200">
-      <h1 className="p-4 text-xl font-semibold">Travility</h1>
+      <div className="flex items-center justify-between p-4">
+        <h1 className="text-xl font-semibold">Travility</h1>
+        {onNewTrip && (
+          <button disabled={busy} onClick={onNewTrip}
+            className="rounded-lg border border-stone-300 px-3 py-1 text-sm disabled:opacity-50">＋ Chuyến mới</button>
+        )}
+      </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4" aria-live="polite">
         {items.length === 0 && (
           <p className="text-sm text-stone-500">Thử: "Đi Đà Lạt 2 ngày, 5 triệu, thích cafe chill và thiên nhiên"</p>
