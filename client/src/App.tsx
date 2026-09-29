@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import {
-  applyProposal, clarifyAfter, optionPlace, reportDisruption, streamPlan, streamTrip, type AgentEvent, type Answers,
-  type Clarify, type DisruptionKind, type Itinerary, type ItineraryEvent, type Place, type Proposal,
+  applyProposal, clarifyAfter, confirmAfter, optionPlace, reportDisruption, streamPlan, streamReplan, streamTrip,
+  type AgentEvent, type Answers,
+  type Clarify, type ConfirmReplan, type DisruptionKind, type Itinerary, type ItineraryEvent, type Place, type Proposal,
 } from './api'
 import ChatPanel, { type ChatItem } from './components/ChatPanel'
 import ClarifyCard from './components/ClarifyCard'
+import ConfirmCard from './components/ConfirmCard'
 import Login from './components/Login'
 import MapView from './components/MapView'
 import ProposalPanel from './components/ProposalPanel'
@@ -30,6 +32,7 @@ export default function App() {
   const [places, setPlaces] = useState<Record<string, Place>>({})
   const [budget, setBudget] = useState<number | null>(null)
   const [clarify, setClarify] = useState<Clarify | null>(null)
+  const [confirm, setConfirm] = useState<ConfirmReplan | null>(null)  // đổi Trip chờ người dùng đồng ý lập lại
   const [tripId, setTripId] = useState<number | null>(null)  // Trip đang mở: tin nhắn sau thuộc Trip này
   const [version, setVersion] = useState<number | null>(null)  // version Itinerary đang xem, gửi kèm Disruption
   const [proposal, setProposal] = useState<Proposal | null>(null)
@@ -41,6 +44,7 @@ export default function App() {
 
   function handle(e: AgentEvent) {
     setClarify((c) => clarifyAfter(c, e))
+    setConfirm((c) => confirmAfter(c, e))
     switch (e.type) {
       case 'thinking': add({ role: 'ai', text: e.text }); break
       case 'trip':
@@ -56,6 +60,7 @@ export default function App() {
         add({ role: 'ai', text: e.itinerary.summary })
         break
       case 'answer': add({ role: 'ai', text: e.text }); break
+      case 'confirm_replan': add({ role: 'ai', text: e.text }); break
       case 'error': add({ role: 'error', text: e.message }); break
     }
   }
@@ -107,7 +112,8 @@ export default function App() {
     return run((on) => streamTrip(token!, message, tripId, on))
   }
   const newTrip = () => {
-    setTripId(null); setVersion(null); setProposal(null); setChat([]); setClarify(null); setItinerary(null); setSearchPins([]); setBudget(null)
+    setTripId(null); setVersion(null); setProposal(null); setChat([]); setClarify(null); setConfirm(null)
+    setItinerary(null); setSearchPins([]); setBudget(null)
   }
   const answer = (tripId: number, a: Answers) => run((on) => streamPlan(token!, tripId, a, on))
 
@@ -116,6 +122,9 @@ export default function App() {
       <ChatPanel items={chat} busy={busy} onSend={send} onNewTrip={tripId != null ? newTrip : undefined}>
         {clarify && <ClarifyCard questions={clarify.questions} busy={busy}
           onSubmit={(a) => answer(clarify.tripId, a)} />}
+        {confirm && <ConfirmCard text={confirm.text} busy={busy}
+          onYes={() => run((on) => streamReplan(token!, confirm, on))}
+          onNo={() => { setConfirm(null); add({ role: 'ai', text: 'Đã giữ nguyên lịch trình.' }) }} />}
       </ChatPanel>
       <MapView center={center} searchPins={searchPins} itinerary={itinerary} places={places} />
       <Timeline itinerary={itinerary} places={places} budget={budget} busy={busy} changed={changed}

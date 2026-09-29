@@ -31,6 +31,7 @@ export type AgentEvent =
     changed?: [number, number][]  // [ngày, Stop] vừa đổi khi sửa lịch; lập mới thì không có
   }
   | { type: 'answer'; text: string }  // trả lời câu hỏi trên Trip đang mở, không đổi lịch trình
+  | { type: 'confirm_replan'; trip_id: number; text: string; changes: Record<string, unknown>; message: string }
   | { type: 'error'; message: string }
 
 // Khớp MEALS ở server/app/rules.py: Stop an-uong bắt đầu trong khung giờ = bữa đó
@@ -59,6 +60,15 @@ export function clarifyAfter(current: Clarify | null, e: AgentEvent): Clarify | 
   if (e.type === 'clarify') return { tripId: e.trip_id, questions: e.questions }
   if (e.type === 'itinerary') return null
   return current
+}
+
+export type ConfirmReplan = { tripId: number; text: string; changes: Record<string, unknown>; message: string }
+
+/** Thẻ "đổi Trip sẽ lập lại, tiếp tục?": hiện khi server hỏi, ẩn khi có kết quả khác (trừ lúc đang nghĩ/tìm). */
+export function confirmAfter(current: ConfirmReplan | null, e: AgentEvent): ConfirmReplan | null {
+  if (e.type === 'confirm_replan') return { tripId: e.trip_id, text: e.text, changes: e.changes, message: e.message }
+  if (e.type === 'thinking' || e.type === 'tool_call') return current
+  return null
 }
 
 /** Bỏ trường rỗng (ô giờ chưa nhập, chip chưa chọn) để server không trả 422. */
@@ -113,6 +123,9 @@ export const streamTrip = (token: string, message: string, tripId: number | null
 
 export const streamPlan = (token: string, tripId: number, answers: Answers, onEvent: (e: AgentEvent) => void) =>
   streamSSE(token, `/trips/${tripId}/plan`, answers, onEvent)
+
+export const streamReplan = (token: string, c: ConfirmReplan, onEvent: (e: AgentEvent) => void) =>
+  streamSSE(token, `/trips/${c.tripId}/replan`, { changes: c.changes, message: c.message }, onEvent)
 
 export type DisruptionKind = 'closed' | 'disliked'
 export type ItineraryEvent = Extract<AgentEvent, { type: 'itinerary' }>

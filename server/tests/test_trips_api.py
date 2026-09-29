@@ -245,6 +245,39 @@ def test_bad_edit_twice_is_error_and_no_new_version(client, conn, monkeypatch):
     assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 1
 
 
+def test_trip_change_asks_to_confirm_before_replanning(client, conn, monkeypatch):
+    h, trip_id, _ = trip_with_itinerary(client, conn, monkeypatch)
+    use_llm(monkeypatch, [reply(("change_trip", {"changes": {"budget": 3_000_000}, "text": "Tăng Budget lên 3 triệu?"}))])
+    evs = events(client.post("/trips", json={"message": "cho 3 triệu", "trip_id": trip_id}, headers=h))
+    assert evs[-1] == {"type": "confirm_replan", "trip_id": trip_id, "text": "Tăng Budget lên 3 triệu?",
+                       "changes": {"budget": 3_000_000}, "message": "cho 3 triệu"}
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 1
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["trip"]["budget"] == 2_000_000
+
+
+def test_replan_applies_changes_and_reuses_old_places(client, conn, monkeypatch):
+    h, trip_id, pid = trip_with_itinerary(client, conn, monkeypatch)
+    fake = FakeClient([reply(("submit_itinerary", {"summary": "mới", "days": [{"stops": [
+        {"place_id": pid, "start_time": "10:00", "duration_min": 60, "reason": "giữ quán cũ"}]}]}))])
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    evs = events(client.post(f"/trips/{trip_id}/replan", headers=h,
+                             json={"changes": {"budget": 3_000_000}, "message": "cho 3 triệu"}))
+    assert [e["type"] for e in evs] == ["trip", "itinerary"]  # Place cũ dùng được, không cần search lại
+    assert evs[-1]["version"] == 2 and evs[0]["trip"]["budget"] == 3_000_000
+    assert "Lịch trình cũ" in fake.calls[0]["messages"][1]["content"]
+    row = conn.execute("SELECT user_messages FROM trips WHERE id = %s", (trip_id,)).fetchone()
+    assert row["user_messages"] == ["x", "cho 3 triệu"]
+
+
+def test_replan_bad_changes_422_other_user_404(client, conn, monkeypatch):
+    h, trip_id, _ = trip_with_itinerary(client, conn, monkeypatch)
+    assert client.post(f"/trips/{trip_id}/replan", headers=h,
+                       json={"changes": {"days": 0}, "message": "0 ngày"}).status_code == 422
+    other = auth(client, "binh@example.com")
+    assert client.post(f"/trips/{trip_id}/replan", headers=other,
+                       json={"changes": {"budget": 1}, "message": "x"}).status_code == 404
+
+
 def test_follow_up_on_other_users_trip_is_404(client, conn, monkeypatch):
     add_place(conn)
     _, evs = ask_first(conn, client, monkeypatch)

@@ -228,11 +228,26 @@ def itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
             "places": {str(i): place_brief(seen[i]) for i in used}}
 
 
+def previous_brief(itin: Itinerary, places: dict[int, Place]) -> str:
+    """Lịch cũ gửi kèm khi lập lại sau khi đổi Trip: AI giữ Stop còn phù hợp."""
+    lines = ["Lịch trình cũ (giữ các Stop còn phù hợp với Trip mới; place_id dưới đây dùng được luôn):"]
+    if itin.stay_place_id is not None:
+        lines.append(f"- Chỗ ở: {places[itin.stay_place_id].name} (place_id {itin.stay_place_id})")
+    for i, d in enumerate(itin.days):
+        lines.append(f"- Ngày {i + 1}: " + "; ".join(
+            f"{s.start_time} {places[s.place_id].name} (place_id {s.place_id})" for s in d.stops))
+    return "\n".join(lines)
+
+
 def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] | None,
-         hub: Hub | None = None, user_messages: list[str] = ()) -> Iterator[dict]:
-    seen: dict[int, Place] = {}  # chỉ Place AI đã nhận từ search_places mới hợp lệ
-    messages = [{"role": "system", "content": PLAN_PROMPT},
-                {"role": "user", "content": trip_brief(trip, rain, hub, user_messages)}]
+         hub: Hub | None = None, user_messages: list[str] = (), previous: tuple[Itinerary, dict[int, Place]] | None = None
+         ) -> Iterator[dict]:
+    # chỉ Place AI đã nhận từ search_places (hoặc có trong lịch cũ) mới hợp lệ
+    seen: dict[int, Place] = dict(previous[1]) if previous else {}
+    brief = trip_brief(trip, rain, hub, user_messages)
+    if previous:
+        brief += "\n\n" + previous_brief(*previous)
+    messages = [{"role": "system", "content": PLAN_PROMPT}, {"role": "user", "content": brief}]
     submits = invalid = 0
     last: Itinerary | None = None
 

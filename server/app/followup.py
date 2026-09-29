@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 from pydantic import ValidationError
 
-from app.agent import MAX_INVALID, MAX_STEPS, PLAN_TOOLS, itinerary_event, run_search, trip_brief
+from app.agent import MAX_INVALID, MAX_STEPS, PLAN_TOOLS, _trip_tool, itinerary_event, run_search, trip_brief
 from app.domain import INTENT_LABELS, WEEKDAYS, Draft, DraftDay, DraftStop, Hub, Itinerary, Place, Trip
 from app.replan import to_draft
 from app.rules import InvalidDraft, build_itinerary, cost_breakdown, vnd
@@ -13,6 +13,7 @@ FOLLOWUP_PROMPT = """Bạn là trợ lý của một chuyến đi đã có lịc
 - Câu hỏi, nhận xét, lời cảm ơn → gọi answer. Chỉ dùng số liệu trong phần "Dữ kiện"; thiếu dữ liệu thì nói rõ app chưa có, không đoán, không bịa số.
 - Muốn đổi, thêm, bớt, dời giờ Stop hoặc đổi chỗ ở → gọi edit_itinerary với ÍT thao tác nhất; Stop không liên quan giữ nguyên. Place mới phải lấy từ search_places (hoặc Place đã có trong lịch). Không đụng Stop "đã ghim".
   day/stop là chỉ số trong ngoặc [day.stop] của Dữ kiện (tính từ 0, theo lịch HIỆN TẠI). Mỗi ngày vẫn phải đủ 3 bữa.
+- Muốn đổi thông tin gốc của chuyến (số ngày, ngày đi, số người, Budget, Pace, phương tiện, sở thích, giờ đến/về) → gọi change_trip với các trường thay đổi; text là câu hỏi xác nhận, vd "Đổi thành 3 ngày sẽ lập lại lịch trình, tiếp tục nhé?".
 Trả lời tiếng Việt, ngắn gọn, thân thiện."""
 
 ANSWER_TOOL = {"type": "function", "function": {
@@ -31,6 +32,22 @@ EDIT_TOOL = {"type": "function", "function": {
             "reason": {"type": "string"},
         }, "required": ["op"]}},
     }, "required": ["ops", "summary"]}}}
+
+# Trường Trip người dùng được đổi qua change_trip (destination cố định: muốn nơi khác thì "Chuyến mới")
+CHANGEABLE = ("days", "start_date", "budget", "travelers", "required_tags", "preferred_tags", "avoided_tags", "pace",
+              "travel_mode", "arrival_mode", "arrival_time", "departure_time")
+CHANGE_TOOL = {"type": "function", "function": {
+    "name": "change_trip", "description": "Đổi thông tin gốc của Trip; người dùng xác nhận xong mới lập lại lịch.",
+    "parameters": {"type": "object", "properties": {
+        "changes": {"type": "object", "properties": {
+            k: v for k, v in _trip_tool([])["function"]["parameters"]["properties"].items() if k in CHANGEABLE}},
+        "text": {"type": "string"},
+    }, "required": ["changes", "text"]}}}
+
+
+def changed_trip(trip: Trip, changes: dict) -> Trip:
+    """Trip sau khi áp changes (chỉ trường CHANGEABLE); ValidationError nếu giá trị sai."""
+    return Trip.model_validate(trip.model_dump() | {k: v for k, v in changes.items() if k in CHANGEABLE})
 
 
 class InvalidEdit(Exception):
@@ -147,7 +164,7 @@ def itinerary_facts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> st
 def followup(conn, client, model: str, trip: Trip, itin: Itinerary, places: dict[int, Place], message: str,
              rain: list[int | None] | None, hub: Hub | None, embed_fn) -> Iterator[dict]:
     seen = dict(places)  # Place đang có trong lịch + Place AI tìm thêm
-    tools = [PLAN_TOOLS[0], ANSWER_TOOL, EDIT_TOOL]
+    tools = [PLAN_TOOLS[0], ANSWER_TOOL, EDIT_TOOL, CHANGE_TOOL]
     invalid = 0
     last = None  # (Itinerary, changed) hợp lệ gần nhất nhưng còn Conflict mới
     messages = [{"role": "system", "content": FOLLOWUP_PROMPT},
@@ -170,6 +187,18 @@ def followup(conn, client, model: str, trip: Trip, itin: Itinerary, places: dict
             elif c.function.name == "answer":
                 yield {"type": "answer", "text": str(args.get("text", ""))}
                 return
+            elif c.function.name == "change_trip":
+                changes = {k: v for k, v in (args.get("changes") or {}).items() if k in CHANGEABLE}
+                try:
+                    if not changes:
+                        raise ValueError("changes rỗng")
+                    changed_trip(trip, changes)
+                except (ValueError, ValidationError) as e:  # ValidationError là ValueError
+                    result = f"Lỗi: {e}. Sửa changes rồi gọi lại."
+                else:
+                    yield {"type": "confirm_replan", "text": str(args.get("text", "")), "changes": changes,
+                           "message": message}
+                    return
             elif c.function.name == "edit_itinerary":
                 try:
                     draft, changed = apply_ops(itin, args.get("ops") or [], set(seen))

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clarifyAfter, intentChips, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
+  clarifyAfter, confirmAfter, intentChips, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
   type AgentEvent, type Itinerary, type ProposalOption,
 } from './api'
 
@@ -71,5 +71,16 @@ describe('signed', () => {
     expect(signed(30000, vnd)).toBe('+' + vnd(30000))
     expect(signed(-12, (x) => `${x} phút`)).toBe('−12 phút')
     expect(signed(0, vnd)).toBe('như cũ')
+  })
+})
+
+describe('confirmAfter', () => {
+  const ask = { type: 'confirm_replan', trip_id: 3, text: 'Đổi 3 ngày?', changes: { days: 3 }, message: '3 ngày' } as const
+  it('hiện thẻ khi server xin xác nhận, giữ khi đang nghĩ, ẩn khi có lịch hoặc câu trả lời mới', () => {
+    const c = confirmAfter(null, ask)
+    expect(c).toEqual({ tripId: 3, text: 'Đổi 3 ngày?', changes: { days: 3 }, message: '3 ngày' })
+    expect(confirmAfter(c, { type: 'thinking', text: '…' })).toBe(c)
+    expect(confirmAfter(c, { type: 'answer', text: 'ok' })).toBeNull()
+    expect(confirmAfter(c, { type: 'trip', trip_id: 3, trip: { budget: 1 }, center: [0, 0] })).toBeNull()
   })
 })

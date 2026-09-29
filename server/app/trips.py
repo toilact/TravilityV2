@@ -13,7 +13,7 @@ from app import forecast, llm
 from app.agent import (TripParseError, UnsupportedDestination, apply_answers, merge_trip, missing_questions,
                        parse_trip, plan)
 from app.domain import Hub, Itinerary, Trip, TripAnswers
-from app.followup import followup
+from app.followup import changed_trip, followup
 from app.auth import current_user
 from app.config import settings
 from app.db import connect, get_conn
@@ -86,9 +86,10 @@ def save_itinerary(conn, trip_id: int, itinerary: dict, places: dict) -> int:
         (trip_id, Jsonb({"itinerary": itinerary, "places": places}), trip_id)).fetchone()["version"]
 
 
-def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str]):
+def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str], previous=None):
     rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days)
-    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages):
+    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages,
+                   previous):
         if ev["type"] == "itinerary":
             version = save_itinerary(conn, trip_id, ev["itinerary"], ev["places"])
             ev = {**ev, "trip_id": trip_id, "version": version}
@@ -107,14 +108,20 @@ def latest_itinerary(conn, trip_id: int) -> tuple[int, Itinerary] | None:
     return (row["version"], Itinerary.model_validate(row["data"]["itinerary"])) if row else None
 
 
+def itinerary_places(conn, itin: Itinerary) -> dict:
+    ids = {s.place_id for d in itin.days for s in d.stops} | ({itin.stay_place_id} - {None})
+    return get_places(conn, list(ids))
+
+
 def _follow_up(conn, client, prev: dict, itin: Itinerary, dest: dict, message: str):
     """Trip đã có lịch trình: trả lời / sửa, không lập lại từ đầu (#22)."""
     trip = Trip.model_validate(prev["spec"])
-    ids = {s.place_id for d in itin.days for s in d.stops} | ({itin.stay_place_id} - {None})
     rain = [d.rain_chance for d in itin.days]
-    for ev in followup(conn, client, settings.llm_model, trip, itin, get_places(conn, list(ids)), message,
+    for ev in followup(conn, client, settings.llm_model, trip, itin, itinerary_places(conn, itin), message,
                        rain, hub_for(dest, trip), llm.embed):
-        if ev["type"] == "itinerary":
+        if ev["type"] == "confirm_replan":
+            ev = {**ev, "trip_id": prev["id"]}
+        elif ev["type"] == "itinerary":
             version = save_itinerary(conn, prev["id"], ev["itinerary"], ev["places"])
             conn.execute("UPDATE trips SET user_messages = user_messages || %s WHERE id = %s", ([message], prev["id"]))
             ev = {**ev, "trip_id": prev["id"], "version": version}
@@ -176,6 +183,36 @@ def plan_trip(trip_id: int, answers: TripAnswers, user_id: int = Depends(current
         dest = next(d for d in list_destinations(c) if d["slug"] == trip.destination)
         yield _trip_event(trip_id, trip, dest)
         yield from _plan_and_save(c, llm.chat_client(), trip_id, trip, dest, row["user_messages"])
+
+    return _stream(run)
+
+
+class Replan(BaseModel):
+    changes: dict
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/trips/{trip_id}/replan")
+def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+    """Người dùng xác nhận đổi Trip (event confirm_replan) → lập lại, gửi kèm lịch cũ làm gợi ý."""
+    row = conn.execute("SELECT spec, user_messages FROM trips WHERE id = %s AND user_id = %s",
+                       (trip_id, user_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "Không tìm thấy chuyến đi")
+    try:
+        trip = changed_trip(Trip.model_validate(row["spec"]), body.changes)
+    except ValidationError as e:
+        raise HTTPException(422, e.errors()[0]["msg"].removeprefix("Value error, ")) from None
+    user_messages = [*row["user_messages"], body.message]
+    conn.execute("UPDATE trips SET spec = %s, user_messages = %s WHERE id = %s",
+                 (Jsonb(trip.model_dump(mode="json")), user_messages, trip_id))
+
+    def run(c):
+        dest = next(d for d in list_destinations(c) if d["slug"] == trip.destination)
+        latest = latest_itinerary(c, trip_id)
+        previous = (latest[1], itinerary_places(c, latest[1])) if latest else None
+        yield _trip_event(trip_id, trip, dest)
+        yield from _plan_and_save(c, llm.chat_client(), trip_id, trip, dest, user_messages, previous)
 
     return _stream(run)
 
