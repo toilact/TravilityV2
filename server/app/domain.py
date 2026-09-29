@@ -1,7 +1,7 @@
 import datetime as dt
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 TAGS = {
     "cafe-chill", "an-chay", "an-dia-phuong", "hai-san", "thien-nhien", "check-in",
@@ -12,7 +12,9 @@ KINDS = ("an-uong", "cafe", "tham-quan", "giai-tri", "cho-o")
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 Pace = Literal["thong-tha", "vua", "day"]
-TravelMode = Literal["xe-may", "grab"]
+TravelMode = Literal["xe-may", "grab", "xe-may-rieng", "o-to-rieng"]
+ArrivalMode = Literal["may-bay", "xe-khach", "tau", "tu-lai"]
+DEFAULT_TRAVEL_MODE: TravelMode = "xe-may"
 PACE_STOPS = {"thong-tha": (3, 4), "vua": (5, 5), "day": (6, 7)}
 PACE_HOURS = {"thong-tha": ("09:00", "20:00"), "vua": ("08:00", "21:00"), "day": ("07:00", "22:00")}
 
@@ -29,12 +31,37 @@ class Trip(BaseModel):
     preferred_tags: list[str] = []
     avoided_tags: list[str] = []
     pace: Pace = "vua"
-    travel_mode: TravelMode = "xe-may"
+    travel_mode: TravelMode | None = None  # None = người dùng chưa nói → hỏi lại, không trả lời thì DEFAULT_TRAVEL_MODE
+    origin_city: str | None = None
+    arrival_mode: ArrivalMode | None = None
+    arrival_time: str | None = Field(default=None, pattern=HHMM)
+    departure_time: str | None = Field(default=None, pattern=HHMM)
 
     @field_validator("required_tags", "preferred_tags", "avoided_tags")
     @classmethod
     def known_tags(cls, v: list[str]) -> list[str]:
         return [t for t in v if t in TAGS]  # LLM có thể bịa Tag → bỏ qua Tag lạ
+
+    @model_validator(mode="after")
+    def departure_after_arrival(self):
+        if self.days == 1 and self.arrival_time and self.departure_time and self.departure_time <= self.arrival_time:
+            raise ValueError("Giờ về phải sau giờ đến")
+        return self
+
+
+class TripAnswers(BaseModel):
+    """Câu trả lời cho event clarify; trường bỏ trống = người dùng không trả lời."""
+    travel_mode: TravelMode | None = None
+    arrival_mode: ArrivalMode | None = None
+    arrival_time: str | None = Field(default=None, pattern=HHMM)
+    departure_time: str | None = Field(default=None, pattern=HHMM)
+
+
+class Hub(BaseModel):
+    """Sân bay/bến xe/ga của một Destination — điểm đầu ngày 1 và điểm cuối ngày cuối."""
+    name: str
+    lat: float
+    lon: float
 
 
 class Place(BaseModel):
@@ -76,11 +103,11 @@ class Stop(DraftStop):
 
 
 class Leg(BaseModel):
-    from_place_id: int
-    to_place_id: int
+    from_place_id: int | None  # None = Hub
+    to_place_id: int | None
     distance_km: float
     duration_min: int
-    mode: Literal["walk", "xe-may", "grab"]
+    mode: Literal["walk", "xe-may", "grab", "o-to"]
     cost: int
 
 
@@ -92,7 +119,7 @@ class Day(BaseModel):
 
 
 class Conflict(BaseModel):
-    kind: Literal["over_budget", "closed", "missing_tag", "rain_outdoor"]
+    kind: Literal["over_budget", "closed", "missing_tag", "rain_outdoor", "before_arrival", "after_departure"]
     message: str
     day_index: int | None = None
     place_id: int | None = None

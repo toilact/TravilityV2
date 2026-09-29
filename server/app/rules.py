@@ -1,7 +1,7 @@
 import datetime as dt
 import math
 
-from app.domain import WEEKDAYS, Conflict, Day, Draft, Itinerary, Leg, Place, Stop, Trip
+from app.domain import DEFAULT_TRAVEL_MODE, WEEKDAYS, Conflict, Day, Draft, Itinerary, Leg, Place, Stop, Trip
 
 # ponytail: đường chim bay × 1.3 thay cho quãng đường thật; đổi sang Goong Distance Matrix nếu cần chính xác.
 ROAD_FACTOR = 1.3
@@ -78,7 +78,7 @@ def build_itinerary(trip: Trip, draft: Draft, places: dict[int, Place],
     stay = places.get(draft.stay_place_id) if draft.stay_place_id is not None else None
     pairs = math.ceil(trip.travelers / 2)  # 2 người/phòng, 2 người/xe
     total = stay.price * pairs * (trip.days - 1) if stay else 0
-    if trip.travel_mode == "xe-may":
+    if (trip.travel_mode or DEFAULT_TRAVEL_MODE) == "xe-may":
         total += MOTO_RENT_PER_DAY * pairs * trip.days
 
     days = []
