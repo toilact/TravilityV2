@@ -158,3 +158,10 @@ class Itinerary(BaseModel):
     summary: str = ""
     intents: dict[str, bool] = {}  # Intent của Trip → Itinerary có Stop đáp ứng không
     retention: float | None = None  # Intent Retention R; None khi Trip không có Intent
+
+
+class Disruption(BaseModel):
+    """Sự cố người dùng báo trên một Stop. Lát C thêm rain/late, lát D thêm insert."""
+    kind: Literal["closed", "disliked"]
+    day_index: int = Field(ge=0)
+    stop_index: int = Field(ge=0)
