@@ -28,6 +28,15 @@ export type AgentEvent =
   | { type: 'itinerary'; itinerary: Itinerary; places: Record<string, Place>; trip_id: number; version: number }
   | { type: 'error'; message: string }
 
+export type Clarify = { tripId: number; questions: Question[] }
+
+/** Thẻ hỏi lại chỉ mất khi đã có lịch trình — /plan lỗi (422, AI lỗi) thì giữ để người dùng sửa hoặc thử lại. */
+export function clarifyAfter(current: Clarify | null, e: AgentEvent): Clarify | null {
+  if (e.type === 'clarify') return { tripId: e.trip_id, questions: e.questions }
+  if (e.type === 'itinerary') return null
+  return current
+}
+
 /** Bỏ trường rỗng (ô giờ chưa nhập, chip chưa chọn) để server không trả 422. */
 export function toAnswers(form: Record<string, string>): Answers {
   return Object.fromEntries(Object.entries(form).filter(([, v]) => v !== '')) as Answers

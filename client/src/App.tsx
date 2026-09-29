@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { streamPlan, streamTrip, type AgentEvent, type Answers, type Itinerary, type Place, type Question } from './api'
+import {
+  clarifyAfter, streamPlan, streamTrip, type AgentEvent, type Answers, type Clarify, type Itinerary, type Place,
+} from './api'
 import ChatPanel, { type ChatItem } from './components/ChatPanel'
 import ClarifyCard from './components/ClarifyCard'
 import Login from './components/Login'
@@ -25,13 +27,14 @@ export default function App() {
   const [itinerary, setItinerary] = useState<Itinerary | null>(null)
   const [places, setPlaces] = useState<Record<string, Place>>({})
   const [budget, setBudget] = useState<number | null>(null)
-  const [clarify, setClarify] = useState<{ tripId: number; questions: Question[] } | null>(null)
+  const [clarify, setClarify] = useState<Clarify | null>(null)
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
   const add = (item: ChatItem) => setChat((c) => [...c, item])
 
   function handle(e: AgentEvent) {
+    setClarify((c) => clarifyAfter(c, e))
     switch (e.type) {
       case 'thinking': add({ role: 'ai', text: e.text }); break
       case 'trip': setCenter(e.center); setBudget(e.trip.budget); setItinerary(null); break
@@ -39,7 +42,6 @@ export default function App() {
         add({ role: 'tool', text: `Đang tìm: ${e.query} (${e.places.length} kết quả)` })
         setSearchPins((p) => [...p, ...e.places.filter((x) => !p.some((y) => y.id === x.id))])
         break
-      case 'clarify': setClarify({ tripId: e.trip_id, questions: e.questions }); break
       case 'itinerary':
         setPlaces(e.places); setItinerary(e.itinerary); setSearchPins([])
         add({ role: 'ai', text: e.itinerary.summary })
@@ -51,7 +53,6 @@ export default function App() {
   async function run(stream: (onEvent: (e: AgentEvent) => void) => Promise<void>) {
     setBusy(true)
     setSearchPins([])
-    setClarify(null)
     try {
       await stream(handle)
     } catch (err) {
@@ -64,6 +65,7 @@ export default function App() {
 
   const send = (message: string) => {
     add({ role: 'user', text: message })
+    setClarify(null)  // câu mới = Trip mới, bỏ câu hỏi của Trip cũ
     return run((on) => streamTrip(token!, message, on))
   }
   const answer = (tripId: number, a: Answers) => run((on) => streamPlan(token!, tripId, a, on))
