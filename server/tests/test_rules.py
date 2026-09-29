@@ -194,3 +194,36 @@ def test_meal_after_departure_not_required():
     trip = Trip(destination="da-lat", days=1, budget=10**9, travel_mode="grab", departure_time="15:00")
     itin = build_itinerary(trip, meal_draft(["07:00", "11:30"], [1, 1]), FOOD)
     assert meals_missing(itin) == []
+
+
+from app.domain import Itinerary, intent_weights, place_intents
+
+
+def test_place_intents_ignores_constraint_tags():
+    assert place_intents(["gia-re", "hai-san", "view-dep"]) == {"am-thuc", "thien-nhien"}
+
+
+def test_intent_weights_required_beats_preferred():
+    trip = Trip(destination="da-lat", days=1, budget=1, required_tags=["cafe-chill"],
+                preferred_tags=["yen-tinh", "lich-su"])
+    assert intent_weights(trip) == {"thu-gian": 2, "van-hoa": 1}
+
+
+def test_retention_weighted():
+    places = {1: P(1, tags=["cafe-chill"]), 2: P(2, tags=["gia-re"])}
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, required_tags=["cafe-chill"],
+                preferred_tags=["lich-su"])
+    itin = build_itinerary(trip, draft([[1, 2]]), places)
+    assert itin.intents == {"thu-gian": True, "van-hoa": False}
+    assert itin.retention == 0.67  # 2 / (2 + 1)
+
+
+def test_retention_none_without_intents():
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, preferred_tags=["gia-re"])
+    itin = build_itinerary(trip, draft([[1]]), {1: P(1)})
+    assert (itin.intents, itin.retention) == ({}, None)
+
+
+def test_old_itinerary_json_still_loads():
+    itin = Itinerary.model_validate({"stay_place_id": None, "days": [], "total_cost": 0})
+    assert (itin.intents, itin.retention) == ({}, None)

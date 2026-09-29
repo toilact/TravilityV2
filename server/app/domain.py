@@ -8,6 +8,23 @@ TAGS = {
     "lich-su", "van-hoa", "dem", "yen-tinh", "soi-dong", "gia-dinh", "lang-man",
     "mua-sam", "view-dep", "gia-re", "sang-trong",
 }
+
+# Intent = lý do lớn của chuyến đi, gom nhiều Tag. gia-dinh, gia-re, sang-trong là ràng buộc, không phải Intent.
+INTENTS = {
+    "am-thuc": ("an-dia-phuong", "hai-san", "an-chay"),
+    "thien-nhien": ("thien-nhien", "view-dep"),
+    "van-hoa": ("lich-su", "van-hoa"),
+    "thu-gian": ("cafe-chill", "yen-tinh", "lang-man"),
+    "vui-choi": ("soi-dong", "dem", "mua-sam", "check-in"),
+}
+# Khớp INTENT_LABELS ở client/src/api.ts
+INTENT_LABELS = {"am-thuc": "Ẩm thực", "thien-nhien": "Thiên nhiên", "van-hoa": "Văn hoá", "thu-gian": "Thư giãn",
+                 "vui-choi": "Vui chơi"}
+
+
+def place_intents(tags) -> set[str]:
+    tags = set(tags)
+    return {i for i, ts in INTENTS.items() if tags.intersection(ts)}
 KINDS = ("an-uong", "cafe", "tham-quan", "giai-tri", "cho-o")
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
@@ -47,6 +64,13 @@ class Trip(BaseModel):
         if self.days == 1 and self.arrival_time and self.departure_time and self.departure_time <= self.arrival_time:
             raise ValueError("Giờ về phải sau giờ đến")
         return self
+
+
+def intent_weights(trip: Trip) -> dict[str, int]:
+    """Trọng số Intent của Trip: có Tag bắt buộc → 2, chỉ có Tag ưu tiên → 1 (spec D3)."""
+    w = {i: 1 for i in place_intents(trip.preferred_tags)}
+    w.update({i: 2 for i in place_intents(trip.required_tags)})
+    return w
 
 
 class TripAnswers(BaseModel):
@@ -132,3 +156,5 @@ class Itinerary(BaseModel):
     total_cost: int
     conflicts: list[Conflict] = []
     summary: str = ""
+    intents: dict[str, bool] = {}  # Intent của Trip → Itinerary có Stop đáp ứng không
+    retention: float | None = None  # Intent Retention R; None khi Trip không có Intent

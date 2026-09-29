@@ -1,7 +1,8 @@
 import datetime as dt
 import math
 
-from app.domain import DEFAULT_TRAVEL_MODE, WEEKDAYS, Conflict, Day, Draft, Hub, Itinerary, Leg, Place, Stop, Trip
+from app.domain import (DEFAULT_TRAVEL_MODE, WEEKDAYS, Conflict, Day, Draft, Hub, Itinerary, Leg, Place, Stop, Trip,
+                        intent_weights, place_intents)
 
 # ponytail: đường chim bay × 1.3 thay cho quãng đường thật; đổi sang Goong Distance Matrix nếu cần chính xác.
 ROAD_FACTOR = 1.3
@@ -106,6 +107,7 @@ def build_itinerary(trip: Trip, draft: Draft, places: dict[int, Place],
 
     itin = Itinerary(stay_place_id=draft.stay_place_id, days=days, total_cost=total, summary=draft.summary)
     itin.conflicts = find_conflicts(trip, itin, places)
+    itin.intents, itin.retention = intent_retention(trip, itin, places)
     return itin
 
 
@@ -145,3 +147,12 @@ def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> lis
         if t not in covered:
             out.append(Conflict(kind="missing_tag", message=f"Chưa có Stop nào đáp ứng '{t}'"))
     return out
+
+
+def intent_retention(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> tuple[dict[str, bool], float | None]:
+    """R = Σ wₖ·zₖ / Σ wₖ; zₖ = 1 nếu có Stop mà Place thuộc Intent k."""
+    w = intent_weights(trip)
+    covered = set().union(*(place_intents(places[s.place_id].tags) for d in itin.days for s in d.stops))
+    hit = {i: i in covered for i in w}
+    total = sum(w.values())
+    return hit, (round(sum(w[i] for i in w if hit[i]) / total, 2) if total else None)
