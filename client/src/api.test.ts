@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { clarifyAfter, intentChips, mealOf, toAnswers, type AgentEvent, type Itinerary } from './api'
+import {
+  clarifyAfter, intentChips, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
+  type AgentEvent, type Itinerary, type ProposalOption,
+} from './api'
 
 describe('toAnswers', () => {
   it('bỏ ô giờ chưa nhập và chip chưa chọn để server không trả 422', () => {
@@ -43,5 +46,30 @@ describe('intentChips', () => {
   })
   it('Itinerary lưu trước khi có Intent → không có chip', () => {
     expect(intentChips(base as Itinerary)).toEqual([])
+  })
+})
+
+describe('noFeasibleText', () => {
+  it('đổi mã lý do thành câu tiếng Việt, mã lạ giữ nguyên', () => {
+    expect(noFeasibleText(['NO_CANDIDATE', 'XYZ'])).toEqual(['Chưa có Place nào cùng loại để thay.', 'XYZ'])
+  })
+})
+
+describe('optionPlace', () => {
+  it('lấy Place mới ở vị trí Stop đã đổi', () => {
+    const o = {
+      changed: [[0, 1]],
+      itinerary: { days: [{ stops: [{ place_id: 1 }, { place_id: 7 }] }] },
+      places: { '1': { id: 1, name: 'Cũ' }, '7': { id: 7, name: 'Mới' } },
+    } as unknown as ProposalOption
+    expect(optionPlace(o)?.name).toBe('Mới')
+  })
+})
+
+describe('signed', () => {
+  it('thêm dấu và đơn vị; 0 là "như cũ"', () => {
+    expect(signed(30000, vnd)).toBe('+' + vnd(30000))
+    expect(signed(-12, (x) => `${x} phút`)).toBe('−12 phút')
+    expect(signed(0, vnd)).toBe('như cũ')
   })
 })

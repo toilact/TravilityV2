@@ -109,3 +109,52 @@ export const streamTrip = (token: string, message: string, tripId: number | null
 
 export const streamPlan = (token: string, tripId: number, answers: Answers, onEvent: (e: AgentEvent) => void) =>
   streamSSE(token, `/trips/${tripId}/plan`, answers, onEvent)
+
+export type DisruptionKind = 'closed' | 'disliked'
+export type ItineraryEvent = Extract<AgentEvent, { type: 'itinerary' }>
+export type ProposalOption = {
+  itinerary: Itinerary; places: Record<string, Place>; changed: [number, number][]
+  metrics: {
+    cost_delta: number; travel_min_delta: number; day_end_after: string; retention_after: number | null
+    intents_kept: string[]; intents_lost: string[]
+  }
+  reason_codes: string[]; explanation: string
+}
+export type Proposal = { proposal_id: number; options?: ProposalOption[]; no_feasible?: string[] }
+
+async function postJSON<T>(token: string, path: string, body: unknown): Promise<T> {
+  const r = await fetch(API + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  })
+  if (r.status === 401) throw new Error('unauthorized')
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Lỗi máy chủ (${r.status})`)
+  return data as T
+}
+
+export const reportDisruption = (token: string, tripId: number, version: number, kind: DisruptionKind,
+  dayIndex: number, stopIndex: number) =>
+  postJSON<Proposal>(token, `/trips/${tripId}/disruptions`,
+    { version, kind, day_index: dayIndex, stop_index: stopIndex })
+
+export const applyProposal = (token: string, tripId: number, proposalId: number, option: number) =>
+  postJSON<ItineraryEvent>(token, `/trips/${tripId}/proposals/${proposalId}/apply`, { option })
+
+const NO_FEASIBLE_TEXT: Record<string, string> = {
+  NO_CANDIDATE: 'Chưa có Place nào cùng loại để thay.',
+  NO_OPEN_CANDIDATE: 'Các Place tương tự đều đóng cửa vào giờ này.',
+  NOT_REACHABLE_IN_TIME: 'Các Place tương tự quá xa, không kịp giờ Stop kế tiếp.',
+  OVER_BUDGET: 'Thay thế sẽ vượt Budget.',
+  NEW_CONFLICT: 'Thay thế sẽ làm lịch trình phát sinh xung đột mới.',
+}
+export const noFeasibleText = (codes: string[]) => codes.map((c) => NO_FEASIBLE_TEXT[c] ?? c)
+
+export function optionPlace(o: ProposalOption): Place | undefined {
+  const [d, s] = o.changed[0]
+  return o.places[o.itinerary.days[d].stops[s].place_id]
+}
+
+export const signed = (n: number, unit: (x: number) => string) =>
+  n === 0 ? 'như cũ' : (n > 0 ? '+' : '−') + unit(Math.abs(n))
