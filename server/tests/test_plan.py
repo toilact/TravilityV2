@@ -1,5 +1,5 @@
-from app.agent import MAX_STEPS, plan
-from app.domain import Trip
+from app.agent import MAX_STEPS, plan, trip_brief
+from app.domain import Hub, Trip
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
 
@@ -116,3 +116,10 @@ def test_max_steps_exhausted_after_conflict_submit_keeps_best_effort(conn):
     _, events = run(conn, responses, budget=1_000)
     assert events[-1]["type"] == "itinerary"
     assert [c["kind"] for c in events[-1]["itinerary"]["conflicts"]] == ["over_budget"]
+
+
+def test_brief_mentions_times_and_hub():
+    trip = Trip(destination="da-lat", days=1, budget=1, arrival_time="14:00", departure_time="20:00")
+    text = trip_brief(trip, None, Hub(name="Sân bay Liên Khương", lat=11.75, lon=108.37))
+    assert "14:00" in text and "20:00" in text and "Sân bay Liên Khương" in text
+    assert "Travel Mode: xe-may" in text  # chưa nói → mặc định
