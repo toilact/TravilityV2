@@ -81,7 +81,8 @@ Tiêu chí chấp nhận: token hết hạn → về màn đăng nhập kèm th�
 | Destination chưa hỗ trợ → báo rõ danh sách đang có | ✅ |
 | AI tìm Place bằng pgvector (đúng Destination, đủ Tag bắt buộc, loại Tag cần tránh) | ✅ |
 | AI chỉ được dùng Place đã trả về từ tool; Place lạ → làm lại 1 lần (ADR-0001) | ✅ |
-| Stream tiến trình qua SSE (`thinking`, `trip`, `tool_call`, `itinerary`, `error`) | ✅ |
+| Stream tiến trình qua SSE (`thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `error`) | ✅ |
+| Thiếu phương tiện / giờ đến–về → hỏi lại một vòng bằng chip (event `clarify`, `POST /trips/{id}/plan`) | ✅ |
 | Luôn trả Itinerary kèm Conflict thay vì báo lỗi | ✅ |
 | Mỗi Stop có lý do chọn (reason) | ✅ |
 | Lưu Trip + Itinerary; mở lại Trip cũ | 🟡 server có API, client chưa dùng |
@@ -114,6 +115,7 @@ Tiêu chí chấp nhận: pytest chứng minh Draft đụng Pinned Stop bị t�
 | Chi phí: xe máy thuê theo ngày × số xe + xăng/km; Grab theo công thức cố định | ✅ |
 | Budget = ăn + vé + Stay + Leg (không gồm di chuyển liên tỉnh, ADR-0005) | ✅ |
 | Km thật từ **Goong Distance Matrix ở server**; lỗi thì dùng chim bay × 1.3 | ⏳ hiện chỉ có chim bay × 1.3 |
+| Xe máy riêng / ô tô riêng: không tiền thuê; ô tô 3.500đ/km + gửi xe 50.000đ/ngày | ✅ |
 | Conflict mới **"không kịp di chuyển"**: thời gian Leg dài hơn khoảng trống giữa hai Stop | ⏳ |
 | Tối ưu thứ tự Stop bằng thuật toán | ❌ ngoài phạm vi (phá khung giờ AI đã xếp) |
 
@@ -147,6 +149,8 @@ Code thực thi, không để prompt quyết định. Nguồn: spec + các quy�
 - Chi phí Stop = giá Place × số người. Xe máy thuê = ngày × số xe (2 người/xe).
 - Pace: thong thả 3–4 Stop (9h–20h) · vừa 5 (8h–21h) · dày 6–7 (7h–22h).
 - Conflict: vượt Budget · ngoài giờ mở cửa (theo thứ nếu có ngày đi) · thiếu Tag bắt buộc · Stop ngoài trời ngày mưa ≥ 60% · *(mới)* không kịp di chuyển giữa hai Stop.
+- Stop ngày 1 cách giờ đến ≥ 60 phút; Stop ngày cuối kết thúc trước giờ về ≥ 90 phút (Conflict `before_arrival` / `after_departure`).
+- Biết Arrival Mode và Destination có Hub → ngày 1 xuất phát từ Hub, ngày cuối kết thúc tại Hub.
 - Revision không được sửa hay xoá Pinned Stop. Ghim không tạo version.
 - Itinerary bất biến. Mọi thay đổi (kể cả "quay lại bản cũ") tạo version mới.
 - Câu chat thắng Traveler Profile khi mâu thuẫn.
@@ -215,8 +219,9 @@ SERVER (docker compose)
         itineraries (version), messages*        (* = bảng mới)
 ```
 - Server tắt thì app không dùng được. Khi demo, cả hai chạy trên một laptop; cổng chỉ mở trên `127.0.0.1`.
+- **API đã thêm:** `POST /trips/{id}/plan` (SSE; áp câu trả lời của event `clarify` rồi lập lịch).
 - **API mới dự kiến:** `POST /trips/{id}/revisions` (SSE, trả version mới) · `POST /trips/{id}/restore/{version}` · `PATCH /trips/{id}/pins` · `GET/PUT /profile` · `GET /trips/{id}/messages`.
-- **Event SSE:** giữ 5 event hiện có. Event `itinerary` thêm `version` và danh sách Stop đã đổi. Thêm event mới thì phải sửa cả server lẫn kiểu `AgentEvent` trong `client/src/api.ts`.
+- **Event SSE:** giữ 6 event hiện có (thêm `clarify` — event cuối của `POST /trips` khi thiếu thông tin). Event `itinerary` thêm `version` và danh sách Stop đã đổi. Thêm event mới thì phải sửa cả server lẫn kiểu `AgentEvent` trong `client/src/api.ts`.
 
 ## 9. Dữ liệu Place
 
