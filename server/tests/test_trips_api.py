@@ -6,12 +6,18 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from app import forecast, llm, trips
+from app import forecast, llm, rules, trips
 from app.db import get_conn
 from app.domain import Trip
 from app.main import app
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
+
+
+@pytest.fixture(autouse=True)
+def no_meal_rule(monkeypatch):
+    """Các test ở đây không xếp bữa ăn; quy tắc 3 bữa được test riêng ở test_rules / test_missing_meal_*."""
+    monkeypatch.setattr(rules, "MEALS", ())
 
 
 @pytest.fixture

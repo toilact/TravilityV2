@@ -15,6 +15,7 @@ MOTO_RENT_PER_DAY = 120_000
 RAIN_PCT = 60
 ARRIVAL_BUFFER_MIN = 60  # từ lúc tới đến Stop đầu tiên (nhận phòng, gửi đồ)
 DEPARTURE_BUFFER_MIN = 90  # từ Stop cuối đến giờ về (ra sân bay/bến xe)
+MEALS = (("sáng", "06:00", "10:00"), ("trưa", "11:00", "14:00"), ("tối", "17:00", "21:00"))  # Stop an-uong bắt đầu trong khung
 
 
 class InvalidDraft(Exception):
@@ -131,6 +132,14 @@ def find_conflicts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> lis
                     and _minutes(s.start_time) + s.duration_min > _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN):
                 out.append(Conflict(kind="after_departure", day_index=i, place_id=p.id,
                                     message=f"Ngày {i + 1}: {p.name} kết thúc quá sát giờ về {trip.departure_time}"))
+    for i, day in enumerate(itin.days):
+        for meal, lo, hi in MEALS:
+            if i == 0 and trip.arrival_time and _minutes(hi) <= _minutes(trip.arrival_time) + ARRIVAL_BUFFER_MIN:
+                continue  # bữa trước khi tới nơi
+            if i == last and trip.departure_time and _minutes(lo) >= _minutes(trip.departure_time) - DEPARTURE_BUFFER_MIN:
+                continue  # bữa sau khi đã về
+            if not any(places[s.place_id].kind == "an-uong" and lo <= s.start_time < hi for s in day.stops):
+                out.append(Conflict(kind="missing_meal", day_index=i, message=f"Ngày {i + 1} chưa có bữa {meal}"))
     covered = {t for d in itin.days for s in d.stops for t in places[s.place_id].tags}
     for t in trip.required_tags:
         if t not in covered:
