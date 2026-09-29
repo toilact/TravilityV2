@@ -8,7 +8,8 @@ Thuật ngữ in đậm theo [CONTEXT.md](../CONTEXT.md). Spec gốc: [travility
 
 - **Plan 1** (nền tảng + AI Trip Planner lõi): ✅ merge `main` (PR #1).
 - **Cá nhân hoá lát 1** (PR #30, chờ review): hỏi lại một vòng, giờ đến/về, **Hub**, xe riêng, chat gắn với **Trip** (bản tạm), đủ 3 bữa/ngày, thêm 27 Place.
-- Test: server 106 pass (pytest + Postgres Docker), client 8 pass, build OK.
+- **Lát A+B Revision giữ mục đích** (nhánh `feat/revision-giu-muc-dich`): chip Intent + R trên Timeline; "Báo đóng cửa" / "Đổi chỗ khác" trên Stop → tối đa 3 Proposal do code tạo (không LLM) → "Áp dụng" tạo version mới. Chưa có: mưa, trễ giờ, bản đồ theo thời điểm, đánh giá B0/B1/B2, ranker (lát C–F).
+- Test: server 128 pass (pytest + Postgres Docker), client 13 pass, build OK.
 - **Đã chạy E2E** với Gemini thật qua app desktop (`gemini-3.5-flash-lite`, embedding `gemini-embedding-001`).
 - **Dữ liệu:** 37 Place Đà Lạt, trong đó 27 gắn `"unverified": true` chờ kiểm chứng (PRD cần ≥ 150/Destination × 3).
 - **Chưa làm:** Revision đầy đủ (chỉ đổi Stop liên quan, Pinned Stop, quay lại version), Traveler Profile, chỗ ở đã đặt, điểm bắt buộc ghé, UI mới, giọng nói, Inspiration Photo, Google login, recap/PDF, demo_cache, đóng gói. Phân công: PRD §12 và GitHub Issues.
@@ -64,6 +65,19 @@ Client streamTrip(message, tripId) — POST /trips {message, trip_id?} (Bearer J
         → INSERT itineraries (version = max + 1) → "itinerary" {itinerary, places, trip_id, version}
 ```
 
+Sự cố trên một Stop (`server/app/proposals.py`, JSON thường, không SSE):
+```
+POST /trips/{id}/disruptions {version, kind: closed|disliked, day_index, stop_index}
+  → version khác bản mới nhất: 409 · Stop đã ghim / không tồn tại: 422 · Trip của User khác: 404
+  → replan.propose: ứng viên = similar_places (embedding đã lưu, cùng kind, bỏ Place đã dùng + Tag tránh)
+      → lọc is_open + kịp giờ (make_leg) → xếp theo score(features) → build_itinerary
+      → loại phương án sinh Conflict cứng mới → tối đa 3 Proposal + metrics + reason_codes + câu giải thích
+  → INSERT proposals (kiêm log feedback) → {proposal_id, options} hoặc {proposal_id, no_feasible}
+POST /trips/{id}/proposals/{pid}/apply {option}
+  → khoá dòng proposals; đã áp dụng cùng option → trả version cũ (idempotent), option khác → 409
+  → save_itinerary (version = max + 1), lưu chosen_index → "itinerary" {…, version}
+```
+
 ### 2.3 Nguyên tắc cần giữ khi mở rộng
 - **LLM chỉ chọn Place và xếp giờ; tiền và Conflict do code tính** (`server/app/rules.py`).
 - **AI chỉ được dùng Place đã có trong kết quả search** (biến `seen` trong `agent.plan`, ADR-0001).
@@ -71,6 +85,7 @@ Client streamTrip(message, tripId) — POST /trips {message, trip_id?} (Bearer J
 - SSE có 6 event: `thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `error`. Thêm event mới thì sửa cả server và `AgentEvent` trong `client/src/api.ts`.
 - Agent gửi lại nguyên message của LLM (`model_dump`) — Gemini 3 cần `thought_signature` trong tool_calls.
 - Khung giờ bữa ăn (`MEALS`) có ở cả `rules.py` và `client/src/api.ts` — đổi thì đổi cả hai.
+- **Proposal do code tạo, không gọi LLM** (ADR-0006). Bảng `INTENT_LABELS` có ở cả `domain.py` và `client/src/api.ts` — đổi thì đổi cả hai.
 
 ### 2.4 Chỗ hổng và điểm nối cho tính năng tiếp theo
 | Hiện trạng | Hệ quả / hướng mở rộng |
@@ -126,6 +141,8 @@ Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặ
 | `itinerary` | Tóm tắt của AI; thẻ hỏi lại biến mất | Vẽ tuyến Goong theo màu ngày, pin số; camera bay qua từng Stop | Tổng tiền, Conflict, từng ngày/Stop, nhãn Bữa sáng/trưa/tối |
 | `error` | Bong bóng đỏ, lời nhắn tiếng Việt; thẻ hỏi lại **vẫn giữ** để sửa/thử lại | — | — |
 | "＋ Chuyến mới" | Xoá chat, thẻ hỏi lại, `tripId` | Xoá pin | Xoá lịch trình |
+| "Báo đóng cửa" / "Đổi chỗ khác" trên Stop (khoá khi Stop đã ghim) | Lỗi 409/422 hiện bong bóng đỏ | Pin vàng tại Place thay thế | Panel "Phương án thay thế": ≤ 3 thẻ, câu giải thích, Δ chi phí / Δ phút / R; hoặc lý do không có phương án |
+| "Áp dụng" | "Đã áp dụng phương án — lịch trình bản N." | Xoá pin vàng, vẽ lại tuyến | Lịch trình bản mới, panel đóng |
 
 ### 3.4 Lựa chọn thiết kế có chủ đích
 - **Hiện tiến trình thay vì spinner:** AI chạy 10–30 giây, người xem thấy AI "đang tìm gì".

@@ -139,12 +139,14 @@ Tiêu chí chấp nhận: km trên Timeline khớp với tuyến Goong vẽ trê
 - Recap đầy đủ: bay toàn tuyến kèm thuyết minh TTS.
 - Xuất PDF: Itinerary theo ngày + bảng chi phí. Đây là cách chia sẻ Trip duy nhất.
 
-### 5.11 Revision giữ mục đích ⏳ (mới, từ ý tưởng Local Explorer AI)
+### 5.11 Revision giữ mục đích 🟡 (mới, từ ý tưởng Local Explorer AI)
 Spec: [2026-09-29-revision-giu-muc-dich-design.md](superpowers/specs/2026-09-29-revision-giu-muc-dich-design.md) · [ADR-0006](adr/0006-thay-the-theo-muc-dich-bang-code.md).
 - **Intent** và **Intent Retention (R)**: chip ✓/✗ và R trên Timeline.
 - **Disruption** do người dùng báo (đóng cửa · không thích · mưa · trễ giờ) → code (không LLM) tạo tối đa 3 **Proposal** giữ Intent của Stop bị mất, kèm bảng so sánh và giải thích từ số liệu. "Áp dụng" tạo version mới.
 - **Bản đồ theo thời điểm:** kéo giờ → Place tô màu theo mở + đến kịp / mở nhưng xa / đóng; thêm Place vào đúng giờ đó.
 - **Đánh giá:** ~40 kịch bản cố định, so B0 (gần nhất) / B1 (gần nhất + qua bộ lọc) / B2 (engine). Sau đó gán nhãn 0–3, train XGBRanker; chỉ bật khi thắng hàm điểm tay (NDCG@5).
+
+Trạng thái: lát A (Intent + R) và lát B (đóng cửa / không thích → Proposal → áp dụng) đã có. Lát C–F (mưa, trễ giờ, bản đồ theo thời điểm, đánh giá, ranker, chat → Disruption) chưa làm.
 
 Tiêu chí chấp nhận: "Báo đóng cửa" cho phương án trong < 2 s, cùng Intent, không có Conflict cứng mới, không đụng Pinned Stop; bảng B0/B1/B2 chạy được bằng `uv run python -m eval.run`.
 
@@ -279,7 +281,7 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 | T2–3 | Plan 2: Revision + Pinned + version + Traveler Profile; UI mới (map full, panel nổi, rail, Map↔Timeline) | ⏳ |
 | T4 | Đà Lạt 150 Place; Goong Distance Matrix + Conflict "không kịp" | ⏳ |
 | T5 | Giọng nói (STT/TTS) | ⏳ |
-| T4–T6 | Revision giữ mục đích (lát A–D, §5.11): Intent, engine, ProposalPanel, mưa/trễ, bản đồ theo thời điểm | ⏳ |
+| T4–T6 | Revision giữ mục đích (lát A–D, §5.11): Intent, engine, ProposalPanel, mưa/trễ, bản đồ theo thời điểm | 🟡 A, B xong |
 | T5–T8 | Đánh giá B0/B1/B2 + ranker (lát E) — Quân | ⏳ |
 | T6 | ~~Inspiration Photo~~ (cắt) → Tùng làm bản đồ theo thời điểm | — |
 | T7 | Google login + quên mật khẩu | ⏳ |

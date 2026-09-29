@@ -1,7 +1,10 @@
-import { intentChips, mealOf, vnd, type Itinerary, type Place } from '../api'
+import type { ReactNode } from 'react'
+import { intentChips, mealOf, vnd, type DisruptionKind, type Itinerary, type Place } from '../api'
 
-export default function Timeline({ itinerary, places, budget }: {
+export default function Timeline({ itinerary, places, budget, busy = false, onDisrupt, children }: {
   itinerary: Itinerary | null; places: Record<string, Place>; budget: number | null
+  busy?: boolean; onDisrupt?: (kind: DisruptionKind, dayIndex: number, stopIndex: number) => void
+  children?: ReactNode
 }) {
   if (!itinerary) {
     return <aside className="border-l border-stone-200 p-4 text-sm text-stone-500">Lịch trình sẽ hiện ở đây.</aside>
@@ -9,6 +12,7 @@ export default function Timeline({ itinerary, places, budget }: {
   const stay = itinerary.stay_place_id != null ? places[itinerary.stay_place_id] : undefined
   return (
     <aside className="min-h-0 overflow-y-auto border-l border-stone-200 p-4">
+      {children}
       <div className="mb-3 rounded-xl bg-white p-3 shadow-sm">
         <div className="text-sm text-stone-500">Tổng chi phí ước tính</div>
         <div className="text-2xl font-semibold">{vnd(itinerary.total_cost)}</div>
@@ -49,6 +53,18 @@ export default function Timeline({ itinerary, places, budget }: {
                   <span className="shrink-0">{vnd(s.est_cost)}</span>
                 </div>
                 <p className="mt-1 text-xs text-stone-500">{s.reason}</p>
+                {onDisrupt && (
+                  <div className="mt-2 flex gap-2 text-xs">
+                    {(['closed', 'disliked'] as const).map((k) => (
+                      <button key={k} type="button" disabled={busy || s.pinned}
+                        title={s.pinned ? 'Bỏ ghim để đổi' : undefined}
+                        onClick={() => onDisrupt(k, i, j)}
+                        className="rounded border border-stone-300 px-2 py-0.5 hover:bg-stone-100 disabled:opacity-40">
+                        {k === 'closed' ? 'Báo đóng cửa' : 'Đổi chỗ khác'}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </li>
               )
             })}
