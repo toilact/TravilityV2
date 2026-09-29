@@ -19,6 +19,7 @@ export type Day = { date: string | null; stops: Stop[]; legs: Leg[]; rain_chance
 export type Conflict = { kind: string; message: string; day_index: number | null; place_id: number | null }
 export type Itinerary = {
   stay_place_id: number | null; days: Day[]; total_cost: number; conflicts: Conflict[]; summary: string
+  intents?: Record<string, boolean>; retention?: number | null  // thiếu ở Itinerary lưu trước lát A
 }
 export type AgentEvent =
   | { type: 'thinking'; text: string }
@@ -34,6 +35,17 @@ const MEALS: [string, string, string][] = [['Bữa sáng', '06:00', '10:00'], ['
 export function mealOf(kind: string | undefined, startTime: string): string | null {
   if (kind !== 'an-uong') return null
   return MEALS.find(([, lo, hi]) => lo <= startTime && startTime < hi)?.[0] ?? null
+}
+
+export const vnd = (n: number) => n.toLocaleString('vi-VN') + 'đ'
+
+// Khớp INTENT_LABELS ở server/app/domain.py
+export const INTENT_LABELS: Record<string, string> = {
+  'am-thuc': 'Ẩm thực', 'thien-nhien': 'Thiên nhiên', 'van-hoa': 'Văn hoá', 'thu-gian': 'Thư giãn', 'vui-choi': 'Vui chơi',
+}
+
+export function intentChips(it: Itinerary): { label: string; ok: boolean }[] {
+  return Object.entries(it.intents ?? {}).map(([k, ok]) => ({ label: INTENT_LABELS[k] ?? k, ok }))
 }
 
 export type Clarify = { tripId: number; questions: Question[] }

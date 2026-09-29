@@ -1,6 +1,4 @@
-import { mealOf, type Itinerary, type Place } from '../api'
-
-const vnd = (n: number) => n.toLocaleString('vi-VN') + 'đ'
+import { intentChips, mealOf, vnd, type Itinerary, type Place } from '../api'
 
 export default function Timeline({ itinerary, places, budget }: {
   itinerary: Itinerary | null; places: Record<string, Place>; budget: number | null
@@ -16,6 +14,19 @@ export default function Timeline({ itinerary, places, budget }: {
         <div className="text-2xl font-semibold">{vnd(itinerary.total_cost)}</div>
         {budget != null && <div className="text-xs text-stone-500">Budget {vnd(budget)} · chưa gồm vé đến/rời thành phố</div>}
         {stay && <div className="mt-1 text-xs">Chỗ ở: {stay.name}</div>}
+        {intentChips(itinerary).length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+            {intentChips(itinerary).map((c) => (
+              <span key={c.label}
+                className={`rounded-full px-2 py-0.5 ${c.ok ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-500'}`}>
+                {c.ok ? '✓' : '✗'} {c.label}
+              </span>
+            ))}
+            {itinerary.retention != null && (
+              <span className="ml-1 text-stone-500">Giữ mục đích {Math.round(itinerary.retention * 100)}%</span>
+            )}
+          </div>
+        )}
       </div>
       {itinerary.conflicts.length > 0 && (
         <ul className="mb-3 space-y-1 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">

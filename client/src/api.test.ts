@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clarifyAfter, mealOf, toAnswers, type AgentEvent } from './api'
+import { clarifyAfter, intentChips, mealOf, toAnswers, type AgentEvent, type Itinerary } from './api'
 
 describe('toAnswers', () => {
   it('bỏ ô giờ chưa nhập và chip chưa chọn để server không trả 422', () => {
@@ -32,5 +32,16 @@ describe('mealOf', () => {
     expect(mealOf('an-uong', '15:00')).toBeNull()
     expect(mealOf('an-uong', '21:00')).toBeNull()
     expect(mealOf('tham-quan', '12:00')).toBeNull()
+  })
+})
+
+describe('intentChips', () => {
+  const base = { stay_place_id: null, days: [], total_cost: 0, conflicts: [], summary: '' }
+  it('mỗi Intent của Trip thành một chip có nhãn tiếng Việt', () => {
+    const it = { ...base, intents: { 'thu-gian': true, 'van-hoa': false }, retention: 0.67 } as Itinerary
+    expect(intentChips(it)).toEqual([{ label: 'Thư giãn', ok: true }, { label: 'Văn hoá', ok: false }])
+  })
+  it('Itinerary lưu trước khi có Intent → không có chip', () => {
+    expect(intentChips(base as Itinerary)).toEqual([])
   })
 })
