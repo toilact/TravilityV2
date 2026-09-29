@@ -39,7 +39,7 @@ def test_facts_have_code_computed_numbers_and_indexes():
     km = sum(leg.distance_km for d in it.days for leg in d.legs)
     facts = itinerary_facts(TRIP, it, PLACES)
     assert f"{km:.1f} km" in facts
-    assert "[0.1]" in facts and "đã ghim" in facts
+    assert "[1.2]" in facts and "đã ghim" in facts  # ngày 1, Stop 2 — đánh số như người dùng nói
     assert "không có dự báo" in facts  # Trip không có ngày đi
     assert "nhiệt độ" in facts  # nói rõ app không có dữ liệu này
 
@@ -50,7 +50,7 @@ def stops(draft):
 
 def test_replace_keeps_every_other_stop():
     it = itin()
-    draft, changed = apply_ops(it, [{"op": "replace_stop", "day": 1, "stop": 0, "place_id": 4, "reason": "rẻ hơn"}],
+    draft, changed = apply_ops(it, [{"op": "replace_stop", "day": 2, "stop": 1, "place_id": 4, "reason": "rẻ hơn"}],
                                {1, 2, 3, 4, 9})
     assert stops(draft) == [[(1, "08:00"), (2, "10:00")], [(4, "09:00")]]
     assert changed == [(1, 0)]
@@ -59,9 +59,9 @@ def test_replace_keeps_every_other_stop():
 
 def test_remove_and_add_use_old_indexes_and_sort_by_time():
     it = itin()
-    draft, changed = apply_ops(it, [{"op": "remove_stop", "day": 0, "stop": 0},
-                                    {"op": "add_stop", "day": 0, "place_id": 3, "start_time": "13:00"},
-                                    {"op": "retime_stop", "day": 0, "stop": 1, "start_time": "09:00"}],
+    draft, changed = apply_ops(it, [{"op": "remove_stop", "day": 1, "stop": 1},
+                                    {"op": "add_stop", "day": 1, "place_id": 3, "start_time": "13:00"},
+                                    {"op": "retime_stop", "day": 1, "stop": 2, "start_time": "09:00"}],
                                {1, 2, 3, 9})
     assert stops(draft)[0] == [(2, "09:00"), (3, "13:00")]
     assert changed == [(0, 0), (0, 1)]
@@ -73,11 +73,11 @@ def test_change_stay():
 
 
 @pytest.mark.parametrize("op", [
-    {"op": "replace_stop", "day": 0, "stop": 1, "place_id": 3},  # Stop đã ghim
-    {"op": "replace_stop", "day": 0, "stop": 0, "place_id": 77},  # Place chưa search
-    {"op": "remove_stop", "day": 5, "stop": 0},  # sai chỉ số
-    {"op": "remove_stop", "day": 1, "stop": 0},  # ngày không còn Stop
-    {"op": "retime_stop", "day": 0, "stop": 0, "start_time": "9h"},  # giờ sai định dạng
+    {"op": "replace_stop", "day": 1, "stop": 2, "place_id": 3},  # Stop đã ghim
+    {"op": "replace_stop", "day": 1, "stop": 1, "place_id": 77},  # Place chưa search
+    {"op": "remove_stop", "day": 6, "stop": 1},  # sai chỉ số
+    {"op": "remove_stop", "day": 2, "stop": 1},  # ngày không còn Stop
+    {"op": "retime_stop", "day": 1, "stop": 1, "start_time": "9h"},  # giờ sai định dạng
     {"op": "fly"},
 ])
 def test_invalid_edits(op):

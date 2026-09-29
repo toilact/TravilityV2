@@ -225,7 +225,7 @@ def test_edit_changes_only_the_named_stop(client, conn, monkeypatch):
     other = add_place(conn, name="Cafe rẻ", kind="cafe")
     use_llm(monkeypatch, [reply(("search_places", {"query": "cafe rẻ"})),
                           reply(("edit_itinerary", {"summary": "Đổi sang quán rẻ hơn", "ops": [
-                              {"op": "replace_stop", "day": 0, "stop": 0, "place_id": other, "reason": "rẻ hơn"}]}))])
+                              {"op": "replace_stop", "day": 1, "stop": 1, "place_id": other, "reason": "rẻ hơn"}]}))])
     evs = events(client.post("/trips", json={"message": "đổi quán cafe rẻ hơn", "trip_id": trip_id}, headers=h))
     assert [e["type"] for e in evs] == ["thinking", "tool_call", "itinerary"]
     assert evs[-1]["version"] == 2 and evs[-1]["changed"] == [[0, 0]]
