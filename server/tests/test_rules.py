@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from app.domain import Draft, Hub, Place, Trip
+from app.domain import Draft, Hub, Itinerary, Place, Trip, intent_weights, place_intents
 from app.rules import InvalidDraft, build_itinerary, is_open, make_leg
 
 WEEK = {d: ["08:00", "17:00"] for d in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]}
@@ -194,9 +194,6 @@ def test_meal_after_departure_not_required():
     trip = Trip(destination="da-lat", days=1, budget=10**9, travel_mode="grab", departure_time="15:00")
     itin = build_itinerary(trip, meal_draft(["07:00", "11:30"], [1, 1]), FOOD)
     assert meals_missing(itin) == []
-
-
-from app.domain import Itinerary, intent_weights, place_intents
 
 
 def test_place_intents_ignores_constraint_tags():
