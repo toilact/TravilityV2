@@ -1,5 +1,7 @@
 {
-  "destination": {"slug": "da-lat", "name": "Đà Lạt", "lat": 11.9404, "lon": 108.4583},
+  "destination": {"slug": "da-lat", "name": "Đà Lạt", "lat": 11.9404, "lon": 108.4583,
+    "hubs": {"may-bay": {"name": "Sân bay Liên Khương", "lat": 11.7503, "lon": 108.3674},
+             "xe-khach": {"name": "Bến xe liên tỉnh Đà Lạt", "lat": 11.9276, "lon": 108.4459}}},
   "places": [
     {"ext_id": "dalat-ho-xuan-huong", "name": "Hồ Xuân Hương", "kind": "tham-quan", "lat": 11.9420, "lon": 108.4450, "price": 0, "open_hours": {"daily": ["00:00", "24:00"]}, "outdoor": true, "tags": ["thien-nhien", "check-in", "view-dep", "lang-man"], "description": "Hồ nước trung tâm thành phố, đi dạo hoặc đạp vịt."},
     {"ext_id": "dalat-quang-truong-lam-vien", "name": "Quảng trường Lâm Viên", "kind": "tham-quan", "lat": 11.9390, "lon": 108.4460, "price": 0, "open_hours": {"daily": ["00:00", "24:00"]}, "outdoor": true, "tags": ["check-in", "dem", "soi-dong"], "description": "Quảng trường với nụ hoa dã quỳ và bông atiso khổng lồ bằng kính."},

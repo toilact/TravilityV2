@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS destinations (
   lat double precision NOT NULL,
   lon double precision NOT NULL
 );
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS hubs jsonb NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS places (
   id serial PRIMARY KEY,

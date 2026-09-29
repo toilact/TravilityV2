@@ -27,4 +27,4 @@ def get_places(conn, ids: list[int]) -> dict[int, Place]:
 
 
 def list_destinations(conn) -> list[dict]:
-    return conn.execute("SELECT slug, name, lat, lon FROM destinations ORDER BY name").fetchall()
+    return conn.execute("SELECT slug, name, lat, lon, hubs FROM destinations ORDER BY name").fetchall()

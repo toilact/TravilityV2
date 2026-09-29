@@ -2,13 +2,14 @@
 import json
 import sys
 from pathlib import Path
+from typing import get_args
 
 import numpy as np
 from psycopg.types.json import Jsonb
 
 from app import llm
 from app.db import apply_schema, connect
-from app.domain import KINDS, TAGS, WEEKDAYS
+from app.domain import KINDS, TAGS, WEEKDAYS, ArrivalMode
 
 
 def expand_hours(hours: dict) -> dict:
@@ -33,10 +34,15 @@ def import_file(conn, path, embed_fn) -> int:
             raise ValueError(f"{p['ext_id']}: tag lạ {sorted(bad)}")
         if p["kind"] not in KINDS:
             raise ValueError(f"{p['ext_id']}: kind lạ {p['kind']}")
+    hubs = d.get("hubs", {})
+    bad_hubs = set(hubs) - set(get_args(ArrivalMode))
+    if bad_hubs:
+        raise ValueError(f"{d['slug']}: hub lạ {sorted(bad_hubs)}")
     conn.execute(
-        """INSERT INTO destinations(slug,name,lat,lon) VALUES (%s,%s,%s,%s)
-           ON CONFLICT (slug) DO UPDATE SET name=excluded.name, lat=excluded.lat, lon=excluded.lon""",
-        (d["slug"], d["name"], d["lat"], d["lon"]),
+        """INSERT INTO destinations(slug,name,lat,lon,hubs) VALUES (%s,%s,%s,%s,%s)
+           ON CONFLICT (slug) DO UPDATE SET name=excluded.name, lat=excluded.lat, lon=excluded.lon,
+             hubs=excluded.hubs""",
+        (d["slug"], d["name"], d["lat"], d["lon"], Jsonb(hubs)),
     )
     vecs = embed_fn([place_text(p) for p in places])
     for p, v in zip(places, vecs, strict=True):
