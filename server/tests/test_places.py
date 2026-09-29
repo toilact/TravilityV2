@@ -1,4 +1,4 @@
-from app.places import get_places, list_destinations, search_places
+from app.places import get_places, list_destinations, search_places, similar_places
 from tests.helpers import add_place, unit_vec
 
 
@@ -27,3 +27,15 @@ def test_get_places_and_destinations(conn):
     pid = add_place(conn, name="A")
     assert get_places(conn, [pid])[pid].name == "A"
     assert list_destinations(conn)[0]["slug"] == "da-lat"
+
+
+def test_similar_places_uses_stored_embedding_and_filters(conn):
+    lost = add_place(conn, name="Mất", kind="cafe", vec=1)
+    far = add_place(conn, name="Xa", kind="cafe", vec=5)
+    near = add_place(conn, name="Gần", kind="cafe", vec=1)
+    add_place(conn, name="Khác loại", kind="an-uong", vec=1)
+    add_place(conn, name="Tránh", kind="cafe", vec=1, tags=["soi-dong"])
+    add_place(conn, name="Nơi khác", kind="cafe", vec=1, destination="hoi-an")
+    used = add_place(conn, name="Đã dùng", kind="cafe", vec=1)
+    got = similar_places(conn, lost, "cafe", exclude_ids=[lost, used], exclude_tags=["soi-dong"])
+    assert [p.id for p in got] == [near, far]

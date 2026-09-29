@@ -21,6 +21,21 @@ def search_places(conn, destination: str, query_vec: list[float], kind: str | No
     return [Place.model_validate(r) for r in rows]
 
 
+def similar_places(conn, place_id: int, kind: str, exclude_ids=(), exclude_tags=(), limit: int = 20) -> list[Place]:
+    """Place giống place_id theo embedding đã lưu — không gọi API embedding, chạy được khi mất mạng."""
+    rows = conn.execute(
+        f"""SELECT {COLUMNS} FROM places
+            WHERE destination = (SELECT destination FROM places WHERE id = %(id)s)
+              AND kind = %(k)s
+              AND NOT (id = ANY(%(ids)s::int[]))
+              AND NOT (tags && %(ex)s::text[])
+            ORDER BY embedding <=> (SELECT embedding FROM places WHERE id = %(id)s)
+            LIMIT %(n)s""",
+        {"id": place_id, "k": kind, "ids": list(exclude_ids), "ex": list(exclude_tags), "n": limit},
+    ).fetchall()
+    return [Place.model_validate(r) for r in rows]
+
+
 def get_places(conn, ids: list[int]) -> dict[int, Place]:
     rows = conn.execute(f"SELECT {COLUMNS} FROM places WHERE id = ANY(%s)", (list(ids),)).fetchall()
     return {r["id"]: Place.model_validate(r) for r in rows}
