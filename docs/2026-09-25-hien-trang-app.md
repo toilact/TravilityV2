@@ -65,6 +65,18 @@ Client streamTrip(message, tripId) — POST /trips {message, trip_id?} (Bearer J
         → INSERT itineraries (version = max + 1) → "itinerary" {itinerary, places, trip_id, version}
 ```
 
+Tin nhắn tiếp theo trên Trip **đã có** lịch trình (`server/app/followup.py`, SSE, #22):
+```
+POST /trips {message, trip_id} → có Itinerary → followup (không parse_trip, không lập lại)
+  → LLM nhận trip_brief + itinerary_facts (km/phút/tiền từng ngày, chi phí theo nhóm, mưa, [ngày.stop] từ 1)
+  → chọn 1 tool:
+      answer(text)              → "answer" {text}; không version mới, câu hỏi không vào user_messages
+      edit_itinerary(ops)       → apply_ops (thay/xoá/thêm/dời Stop, đổi chỗ ở; Stop không nhắc giữ nguyên, pinned bị từ chối)
+                                  → build_itinerary → Conflict mới: sửa 1 lần → lưu version → "itinerary" {…, changed}
+      change_trip(changes,text) → "confirm_replan"; người dùng bấm "Lập lại" → POST /trips/{id}/replan
+                                  → lập lại, lịch cũ + Place cũ đưa vào làm gợi ý
+```
+
 Sự cố trên một Stop (`server/app/proposals.py`, JSON thường, không SSE):
 ```
 POST /trips/{id}/disruptions {version, kind: closed|disliked, day_index, stop_index}
@@ -82,7 +94,7 @@ POST /trips/{id}/proposals/{pid}/apply {option}
 - **LLM chỉ chọn Place và xếp giờ; tiền và Conflict do code tính** (`server/app/rules.py`).
 - **AI chỉ được dùng Place đã có trong kết quả search** (biến `seen` trong `agent.plan`, ADR-0001).
 - **Code quyết định có hỏi lại hay không** (`missing_questions`), không phải LLM; câu trả lời chip áp bằng code (`apply_answers`).
-- SSE có 6 event: `thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `error`. Thêm event mới thì sửa cả server và `AgentEvent` trong `client/src/api.ts`.
+- SSE có 8 event: `thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `answer`, `confirm_replan`, `error`. Thêm event mới thì sửa cả server và `AgentEvent` trong `client/src/api.ts`.
 - Agent gửi lại nguyên message của LLM (`model_dump`) — Gemini 3 cần `thought_signature` trong tool_calls.
 - Khung giờ bữa ăn (`MEALS`) có ở cả `rules.py` và `client/src/api.ts` — đổi thì đổi cả hai.
 - **Proposal do code tạo, không gọi LLM** (ADR-0006). Bảng `INTENT_LABELS` có ở cả `domain.py` và `client/src/api.ts` — đổi thì đổi cả hai.
@@ -90,7 +102,6 @@ POST /trips/{id}/proposals/{pid}/apply {option}
 ### 2.4 Chỗ hổng và điểm nối cho tính năng tiếp theo
 | Hiện trạng | Hệ quả / hướng mở rộng |
 |---|---|
-| Tin nhắn tiếp theo **lập lại toàn bộ** lịch trình | Revision đầy đủ (#22): chỉ đổi Stop liên quan |
 | Có nhiều version nhưng UI chỉ hiện bản mới nhất | "Quay lại bản này" (#24) |
 | Trường `pinned` có trong Stop nhưng chưa dùng | Pinned Stop (#25) |
 | `user_messages` lưu trong `trips`; client chưa gọi `GET /trips` | Tải lại app mất lịch trình; lịch sử chat + danh sách Trip (#17, #3) |
@@ -139,6 +150,9 @@ Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặ
 | `clarify` | Thẻ hỏi lại: chip phương tiện, chip phương tiện đến + ô giờ tới/về, "Lên lịch" / "Bỏ qua, cứ lên lịch". Gõ tay vào ô chat cũng được | — | — |
 | `tool_call` | "Đang tìm: … (n kết quả)" | Pin vàng nhấp nháy dồn dần | — |
 | `itinerary` | Tóm tắt của AI; thẻ hỏi lại biến mất | Vẽ tuyến Goong theo màu ngày, pin số; camera bay qua từng Stop | Tổng tiền, Conflict, từng ngày/Stop, nhãn Bữa sáng/trưa/tối |
+| `answer` | Câu trả lời của AI (số liệu do code tính) | — | Không đổi |
+| `confirm_replan` | Câu hỏi xác nhận + thẻ "Lập lại" / "Giữ nguyên" | — | Không đổi cho tới khi bấm "Lập lại" |
+| `itinerary` sau khi sửa | Câu tóm tắt thay đổi | Vẽ lại tuyến | Stop vừa đổi có viền vàng |
 | `error` | Bong bóng đỏ, lời nhắn tiếng Việt; thẻ hỏi lại **vẫn giữ** để sửa/thử lại | — | — |
 | "＋ Chuyến mới" | Xoá chat, thẻ hỏi lại, `tripId` | Xoá pin | Xoá lịch trình |
 | "Báo đóng cửa" / "Đổi chỗ khác" trên Stop (khoá khi Stop đã ghim) | Lỗi 409/422 hiện bong bóng đỏ | Pin vàng tại Place thay thế | Panel "Phương án thay thế": ≤ 3 thẻ, câu giải thích, Δ chi phí / Δ phút / R; hoặc lý do không có phương án |

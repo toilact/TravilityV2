@@ -92,7 +92,7 @@ Tiêu chí chấp nhận: 15 prompt golden set cho ≥ 90% Itinerary hợp lệ;
 
 ### 5.4 Revision, Pinned Stop, phiên bản ⏳ (không được cắt)
 - **Chat gắn với Trip đang mở.** Khi đã có Itinerary, mọi tin nhắn là một Revision của Trip đó. Muốn chuyến khác thì bấm nút **"Chuyến mới"**. App không tự đoán ý người dùng.
-  🟡 Đã có bản tạm: `POST /trips` nhận `trip_id` → AI parse lại toàn bộ tin nhắn của Trip (lưu ở `trips.user_messages`), giữ câu trả lời cũ, **lập lại toàn bộ** lịch trình thành version mới; nguyên văn tin nhắn được đưa vào prompt lập lịch. Còn thiếu: chỉ đổi Stop liên quan, Pinned Stop, quay lại version cũ trên UI.
+  🟡 Đã có (2026-09-29): khi Trip đã có lịch, AI tự phân loại tin nhắn — **câu hỏi** được trả lời bằng số liệu code tính (không tạo version); **yêu cầu sửa** thành thao tác trên lịch cũ (Stop không nhắc tới giữ nguyên, Stop đổi có viền); **đổi thông tin gốc** (số ngày, Budget…) hỏi xác nhận rồi lập lại, giữ Place cũ làm gợi ý. Còn thiếu: UI ghim (#25), dãy version + quay lại (#24).
 - Mỗi Trip có lịch sử chat riêng, được lưu lại (mở Trip cũ thấy lại hội thoại).
 - Mỗi Revision tạo **một version Itinerary mới, bất biến**. Chỉ Stop liên quan đến yêu cầu được đổi.
 - **Pinned Stop:** ghim / bỏ ghim từ popup Place hoặc icon trên Timeline. Ghim **không tạo version mới**; đây là trạng thái áp cho Revision kế tiếp. Code kiểm tra Draft và **từ chối Draft đổi hoặc xoá Stop đã ghim** (AI làm lại 1 lần, giống cơ chế Place lạ).
