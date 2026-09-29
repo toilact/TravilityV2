@@ -62,6 +62,9 @@ export function clarifyAfter(current: Clarify | null, e: AgentEvent): Clarify | 
   return current
 }
 
+/** Event kết thúc một lượt; thêm event mới ở server thì cân nhắc thêm vào đây. */
+export const isFinal = (e: AgentEvent) => !['thinking', 'trip', 'tool_call'].includes(e.type)
+
 export type ConfirmReplan = { tripId: number; text: string; changes: Record<string, unknown>; message: string }
 
 /** Thẻ "đổi Trip sẽ lập lại, tiếp tục?": hiện khi server hỏi, ẩn khi có kết quả khác (trừ lúc đang nghĩ/tìm). */
@@ -110,7 +113,7 @@ async function streamSSE(token: string, path: string, body: unknown, onEvent: (e
     buf = rest
     events.forEach((e) => {
       const ev = e as AgentEvent
-      if (ev.type === 'itinerary' || ev.type === 'error' || ev.type === 'clarify') finished = true
+      if (isFinal(ev)) finished = true
       onEvent(ev)
     })
   }

@@ -10,7 +10,7 @@ from app.replan import to_draft
 from app.rules import InvalidDraft, build_itinerary, cost_breakdown, vnd
 
 FOLLOWUP_PROMPT = """Bạn là trợ lý của một chuyến đi đã có lịch trình. Đọc tin nhắn mới và chọn đúng MỘT việc:
-- Câu hỏi, nhận xét, lời cảm ơn → gọi answer. Chỉ dùng số liệu trong phần "Dữ kiện"; thiếu dữ liệu thì nói rõ app chưa có, không đoán, không bịa số.
+- Câu hỏi, nhận xét, lời cảm ơn → gọi answer. Chỉ dùng số liệu trong phần "Dữ kiện"; thiếu dữ liệu thì nói rõ app chưa có, không đoán, không bịa số. Diễn đạt tự nhiên như người, không chép nguyên văn Dữ kiện.
 - Muốn đổi, thêm, bớt, dời giờ Stop hoặc đổi chỗ ở → gọi edit_itinerary với ÍT thao tác nhất; Stop không liên quan giữ nguyên. Place mới phải lấy từ search_places (hoặc Place đã có trong lịch). Không đụng Stop "đã ghim".
   day/stop đánh số từ 1 đúng như [ngày.stop] trong Dữ kiện (vd "quán trưa ngày 1" là một Stop [1.x]), theo lịch HIỆN TẠI. Mỗi ngày vẫn phải đủ 3 bữa.
 - Muốn đổi thông tin gốc của chuyến (số ngày, ngày đi, số người, Budget, Pace, phương tiện, sở thích, giờ đến/về) → gọi change_trip với các trường thay đổi; text là câu hỏi xác nhận, vd "Đổi thành 3 ngày sẽ lập lại lịch trình, tiếp tục nhé?".
@@ -43,6 +43,11 @@ CHANGE_TOOL = {"type": "function", "function": {
             k: v for k, v in _trip_tool([])["function"]["parameters"]["properties"].items() if k in CHANGEABLE}},
         "text": {"type": "string"},
     }, "required": ["changes", "text"]}}}
+
+
+CONFIRM_TOOL = {"type": "function", "function": {
+    "name": "confirm_replan", "description": "Người dùng đồng ý thay đổi đang chờ xác nhận → lập lại lịch ngay.",
+    "parameters": {"type": "object", "properties": {}}}}
 
 
 def changed_trip(trip: Trip, changes: dict) -> Trip:
@@ -162,14 +167,17 @@ def itinerary_facts(trip: Trip, itin: Itinerary, places: dict[int, Place]) -> st
 
 
 def followup(conn, client, model: str, trip: Trip, itin: Itinerary, places: dict[int, Place], message: str,
-             rain: list[int | None] | None, hub: Hub | None, embed_fn) -> Iterator[dict]:
+             rain: list[int | None] | None, hub: Hub | None, embed_fn, pending: dict | None = None) -> Iterator[dict]:
     seen = dict(places)  # Place đang có trong lịch + Place AI tìm thêm
-    tools = [PLAN_TOOLS[0], ANSWER_TOOL, EDIT_TOOL, CHANGE_TOOL]
+    tools = [PLAN_TOOLS[0], ANSWER_TOOL, EDIT_TOOL, CHANGE_TOOL] + ([CONFIRM_TOOL] if pending else [])
+    waiting = (f"\n\nĐang chờ người dùng xác nhận: «{pending['text']}» (thay đổi {pending['changes']}). "
+               "Tin nhắn mới là đồng ý (oke, ừ, được, tiếp tục…) → gọi confirm_replan; từ chối → answer."
+               if pending else "")
     invalid = 0
     last = None  # (Itinerary, changed) hợp lệ gần nhất nhưng còn Conflict mới
     messages = [{"role": "system", "content": FOLLOWUP_PROMPT},
                 {"role": "user", "content": f"{trip_brief(trip, rain, hub)}\n\nDữ kiện lịch trình hiện tại:\n"
-                                            f"{itinerary_facts(trip, itin, places)}\n\nTin nhắn mới: {message}"}]
+                                            f"{itinerary_facts(trip, itin, places)}{waiting}\n\nTin nhắn mới: {message}"}]
     for _ in range(MAX_STEPS):
         msg = client.chat.completions.create(model=model, messages=messages, tools=tools,
                                              tool_choice="required").choices[0].message
@@ -186,6 +194,9 @@ def followup(conn, client, model: str, trip: Trip, itin: Itinerary, places: dict
                 yield ev
             elif c.function.name == "answer":
                 yield {"type": "answer", "text": str(args.get("text", ""))}
+                return
+            elif c.function.name == "confirm_replan" and pending:
+                yield {"type": "replan_confirmed"}
                 return
             elif c.function.name == "change_trip":
                 changes = {k: v for k, v in (args.get("changes") or {}).items() if k in CHANGEABLE}

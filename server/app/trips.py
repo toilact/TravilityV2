@@ -60,7 +60,7 @@ def _stream(run) -> StreamingResponse:
 def create_trip(body: NewTrip, user_id: int = Depends(current_user), conn=Depends(get_conn)):
     prev = None
     if body.trip_id is not None:
-        prev = conn.execute("SELECT id, spec, user_messages FROM trips WHERE id = %s AND user_id = %s",
+        prev = conn.execute("SELECT id, spec, user_messages, pending_replan FROM trips WHERE id = %s AND user_id = %s",
                             (body.trip_id, user_id)).fetchone()
         if not prev:
             raise HTTPException(404, "Không tìm thấy chuyến đi")
@@ -117,15 +117,40 @@ def _follow_up(conn, client, prev: dict, itin: Itinerary, dest: dict, message: s
     """Trip đã có lịch trình: trả lời / sửa, không lập lại từ đầu (#22)."""
     trip = Trip.model_validate(prev["spec"])
     rain = [d.rain_chance for d in itin.days]
+    pending = prev["pending_replan"]
+    conn.execute("UPDATE trips SET pending_replan = NULL WHERE id = %s", (prev["id"],))  # chỉ sống 1 lượt
     for ev in followup(conn, client, settings.llm_model, trip, itin, itinerary_places(conn, itin), message,
-                       rain, hub_for(dest, trip), llm.embed):
+                       rain, hub_for(dest, trip), llm.embed, pending):
+        if ev["type"] == "replan_confirmed":
+            yield from _replan(conn, client, prev["id"], trip, prev["user_messages"], pending["changes"],
+                               pending["message"])
+            return
         if ev["type"] == "confirm_replan":
+            conn.execute("UPDATE trips SET pending_replan = %s WHERE id = %s",
+                         (Jsonb({k: ev[k] for k in ("changes", "message", "text")}), prev["id"]))
             ev = {**ev, "trip_id": prev["id"]}
         elif ev["type"] == "itinerary":
             version = save_itinerary(conn, prev["id"], ev["itinerary"], ev["places"])
             conn.execute("UPDATE trips SET user_messages = user_messages || %s WHERE id = %s", ([message], prev["id"]))
             ev = {**ev, "trip_id": prev["id"], "version": version}
         yield sse(ev)
+
+
+def _replan(conn, client, trip_id: int, trip: Trip, user_messages: list[str], changes: dict, message: str):
+    """Đổi Trip đã được đồng ý → lưu spec, lập lại với lịch cũ làm gợi ý."""
+    try:
+        trip = changed_trip(trip, changes)
+    except ValidationError as e:
+        yield sse({"type": "error", "message": e.errors()[0]["msg"].removeprefix("Value error, ")})
+        return
+    user_messages = [*user_messages, message]
+    conn.execute("UPDATE trips SET spec = %s, user_messages = %s, pending_replan = NULL WHERE id = %s",
+                 (Jsonb(trip.model_dump(mode="json")), user_messages, trip_id))
+    dest = next(d for d in list_destinations(conn) if d["slug"] == trip.destination)
+    latest = latest_itinerary(conn, trip_id)
+    previous = (latest[1], itinerary_places(conn, latest[1])) if latest else None
+    yield _trip_event(trip_id, trip, dest)
+    yield from _plan_and_save(conn, client, trip_id, trip, dest, user_messages, previous)
 
 
 def _run(conn, user_id: int, message: str, prev: dict | None = None):
@@ -199,22 +224,13 @@ def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user)
                        (trip_id, user_id)).fetchone()
     if not row:
         raise HTTPException(404, "Không tìm thấy chuyến đi")
+    trip = Trip.model_validate(row["spec"])
     try:
-        trip = changed_trip(Trip.model_validate(row["spec"]), body.changes)
+        changed_trip(trip, body.changes)
     except ValidationError as e:
         raise HTTPException(422, e.errors()[0]["msg"].removeprefix("Value error, ")) from None
-    user_messages = [*row["user_messages"], body.message]
-    conn.execute("UPDATE trips SET spec = %s, user_messages = %s WHERE id = %s",
-                 (Jsonb(trip.model_dump(mode="json")), user_messages, trip_id))
-
-    def run(c):
-        dest = next(d for d in list_destinations(c) if d["slug"] == trip.destination)
-        latest = latest_itinerary(c, trip_id)
-        previous = (latest[1], itinerary_places(c, latest[1])) if latest else None
-        yield _trip_event(trip_id, trip, dest)
-        yield from _plan_and_save(c, llm.chat_client(), trip_id, trip, dest, user_messages, previous)
-
-    return _stream(run)
+    return _stream(lambda c: _replan(c, llm.chat_client(), trip_id, trip, row["user_messages"], body.changes,
+                                     body.message))
 
 
 @router.get("/trips")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clarifyAfter, confirmAfter, intentChips, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
+  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
   type AgentEvent, type Itinerary, type ProposalOption,
 } from './api'
 
@@ -82,5 +82,15 @@ describe('confirmAfter', () => {
     expect(confirmAfter(c, { type: 'thinking', text: '…' })).toBe(c)
     expect(confirmAfter(c, { type: 'answer', text: 'ok' })).toBeNull()
     expect(confirmAfter(c, { type: 'trip', trip_id: 3, trip: { budget: 1 }, center: [0, 0] })).toBeNull()
+  })
+})
+
+describe('isFinal', () => {
+  it('mọi event kết thúc một lượt đều được tính, để không báo "ngắt kết nối" nhầm', () => {
+    expect(isFinal({ type: 'answer', text: 'ok' })).toBe(true)
+    expect(isFinal({ type: 'confirm_replan', trip_id: 1, text: '?', changes: {}, message: 'x' })).toBe(true)
+    expect(isFinal({ type: 'error', message: 'x' })).toBe(true)
+    expect(isFinal({ type: 'thinking', text: '…' })).toBe(false)
+    expect(isFinal({ type: 'tool_call', name: 's', query: 'q', places: [] })).toBe(false)
   })
 })

@@ -278,6 +278,31 @@ def test_replan_bad_changes_422_other_user_404(client, conn, monkeypatch):
                        json={"changes": {"budget": 1}, "message": "x"}).status_code == 404
 
 
+def test_typing_ok_after_confirm_replans(client, conn, monkeypatch):
+    h, trip_id, pid = trip_with_itinerary(client, conn, monkeypatch)
+    use_llm(monkeypatch, [reply(("change_trip", {"changes": {"budget": 3_000_000}, "text": "Đổi 3 triệu?"}))])
+    events(client.post("/trips", json={"message": "cho 3 triệu", "trip_id": trip_id}, headers=h))
+    fake = FakeClient([reply(("confirm_replan", {})),
+                       reply(("submit_itinerary", {"summary": "mới", "days": [{"stops": [
+                           {"place_id": pid, "start_time": "10:00", "duration_min": 60, "reason": "giữ"}]}]}))])
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    evs = events(client.post("/trips", json={"message": "oke", "trip_id": trip_id}, headers=h))
+    assert "Đổi 3 triệu?" in fake.calls[0]["messages"][1]["content"]  # AI biết đang chờ xác nhận gì
+    assert [e["type"] for e in evs] == ["thinking", "trip", "itinerary"]
+    assert evs[1]["trip"]["budget"] == 3_000_000 and evs[-1]["version"] == 2
+    row = conn.execute("SELECT pending_replan, user_messages FROM trips WHERE id = %s", (trip_id,)).fetchone()
+    assert row["pending_replan"] is None and row["user_messages"] == ["x", "cho 3 triệu"]
+
+
+def test_other_reply_drops_pending_confirm(client, conn, monkeypatch):
+    h, trip_id, _ = trip_with_itinerary(client, conn, monkeypatch)
+    use_llm(monkeypatch, [reply(("change_trip", {"changes": {"budget": 3_000_000}, "text": "Đổi 3 triệu?"}))])
+    events(client.post("/trips", json={"message": "cho 3 triệu", "trip_id": trip_id}, headers=h))
+    use_llm(monkeypatch, [reply(("answer", {"text": "Vâng, giữ nguyên."}))])
+    events(client.post("/trips", json={"message": "thôi khỏi", "trip_id": trip_id}, headers=h))
+    assert conn.execute("SELECT pending_replan FROM trips WHERE id = %s", (trip_id,)).fetchone()["pending_replan"] is None
+
+
 def test_follow_up_on_other_users_trip_is_404(client, conn, monkeypatch):
     add_place(conn)
     _, evs = ask_first(conn, client, monkeypatch)

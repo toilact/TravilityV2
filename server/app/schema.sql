@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS trips (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_messages text[] NOT NULL DEFAULT '{}';
+-- change_trip đang chờ người dùng đồng ý ({changes, message, text}); gõ "oke" cũng lập lại được
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS pending_replan jsonb;
 
 CREATE TABLE IF NOT EXISTS itineraries (
   id serial PRIMARY KEY,
