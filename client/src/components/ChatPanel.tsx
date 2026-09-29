@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 export type ChatItem = { role: 'user' | 'ai' | 'tool' | 'error'; text: string }
 
@@ -9,8 +9,8 @@ const STYLE: Record<ChatItem['role'], string> = {
   error: 'bg-red-50 text-red-700 border border-red-200',
 }
 
-export default function ChatPanel({ items, busy, onSend }: {
-  items: ChatItem[]; busy: boolean; onSend: (message: string) => void
+export default function ChatPanel({ items, busy, onSend, children }: {
+  items: ChatItem[]; busy: boolean; onSend: (message: string) => void; children?: ReactNode
 }) {
   const [text, setText] = useState('')
   return (
@@ -23,6 +23,7 @@ export default function ChatPanel({ items, busy, onSend }: {
         {items.map((it, i) => (
           <div key={i} className={`max-w-[90%] rounded-xl px-3 py-2 text-sm ${STYLE[it.role]}`}>{it.text}</div>
         ))}
+        {children}
         {busy && <div className="animate-pulse text-xs text-stone-500">AI đang lên lịch trình…</div>}
       </div>
       <form className="flex gap-2 border-t border-stone-200 p-3" onSubmit={(e) => {

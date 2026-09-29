@@ -43,7 +43,9 @@ export default function MapView({ center, searchPins, itinerary, places }: {
       const features: GeoJSON.Feature[] = []
       for (const [i, day] of itinerary.days.entries()) {
         for (const leg of day.legs) {
-          const a = places[leg.from_place_id], b = places[leg.to_place_id]
+          // ponytail: Leg tới/từ Hub chưa vẽ (Hub không có trong places); thêm marker Hub khi cần
+          const a = leg.from_place_id != null ? places[leg.from_place_id] : undefined
+          const b = leg.to_place_id != null ? places[leg.to_place_id] : undefined
           if (!a || !b) continue
           features.push({ type: 'Feature', properties: { color: DAY_COLORS[i % DAY_COLORS.length] },
             geometry: { type: 'LineString', coordinates: await legLine(a, b) } })
