@@ -26,7 +26,7 @@ Bối cảnh: đồ án nhóm 4 người, 10 tuần, demo trực tiếp 10–15 
 | Thời gian từ gửi yêu cầu đến có Itinerary | < 30 giây (OpenAI) | Đo trong golden set |
 | Sự kiện đầu tiên hiện trên UI | < 2 giây | Event `thinking` ngay khi gửi |
 | Revision chỉ đổi Stop liên quan, không đụng Pinned Stop | 100% | pytest + golden set Revision |
-| Dữ liệu Place | Đà Lạt ≥ 150 (T4); 2 Destination còn lại ≥ 150 mỗi nơi (T8) | Đếm trong `data/places/` |
+| Dữ liệu Place | Đà Lạt ≥ 150 (T4); Destination thứ 2 ≥ 150 (T8) | Đếm trong `data/places/` |
 | Demo offline | Chạy hết kịch bản khi tắt mạng | Diễn tập với demo_cache |
 
 **Không phải mục tiêu:** phát hành cho người dùng thật, chạy nhiều máy, doanh thu.
@@ -46,7 +46,7 @@ Bối cảnh: đồ án nhóm 4 người, 10 tuần, demo trực tiếp 10–15 
 6. Ghim một quán cafe → nói "Ngày 2 mưa thì sao?" → chỉ các Stop ngoài trời đổi; Stop đã ghim giữ nguyên; map animate chỗ đổi; version v2 xuất hiện.
 7. "Bớt 500k" → v3 rẻ hơn. Bấm v1 để xem lại, "Quay lại bản này".
 8. "Đổi sang homestay" → Stay đổi, chi phí tính lại.
-9. Thả một ảnh cảm hứng → 3–5 Suggestion hiện trên map → chấp nhận một cái.
+9. Báo đóng cửa một quán → 3 Proposal giữ Intent + bảng so sánh → áp dụng; kéo thanh giờ để thêm Place (§5.11).
 10. Cinematic recap có thuyết minh → xuất PDF.
 11. Tắt wifi, chạy lại bước 2 → vẫn chạy nhờ demo_cache.
 
@@ -130,7 +130,7 @@ Tiêu chí chấp nhận: km trên Timeline khớp với tuyến Goong vẽ trê
 - Nút mic → STT (OpenAI) → gửi như tin nhắn chat.
 - Câu tóm tắt của AI được đọc bằng TTS (OpenAI); có nút tắt tiếng.
 
-### 5.9 Inspiration Photo ⏳ (cắt thứ 3 nếu trễ)
+### 5.9 Inspiration Photo ❌ (đã cắt 2026-09-29, nhường chỗ §5.11)
 - Kéo thả ảnh → vision mô tả không khí → embedding → 3–5 **Suggestion** hiện trên map với màu riêng.
 - Chấp nhận một Suggestion = một Revision ("thêm nơi này vào ngày 2").
 
@@ -138,6 +138,15 @@ Tiêu chí chấp nhận: km trên Timeline khớp với tuyến Goong vẽ trê
 - Nút "Xem hành trình" (bản đơn giản, làm cùng UI mới): camera bay qua các Stop, dừng được bất cứ lúc nào.
 - Recap đầy đủ: bay toàn tuyến kèm thuyết minh TTS.
 - Xuất PDF: Itinerary theo ngày + bảng chi phí. Đây là cách chia sẻ Trip duy nhất.
+
+### 5.11 Revision giữ mục đích ⏳ (mới, từ ý tưởng Local Explorer AI)
+Spec: [2026-09-29-revision-giu-muc-dich-design.md](superpowers/specs/2026-09-29-revision-giu-muc-dich-design.md) · [ADR-0006](adr/0006-thay-the-theo-muc-dich-bang-code.md).
+- **Intent** và **Intent Retention (R)**: chip ✓/✗ và R trên Timeline.
+- **Disruption** do người dùng báo (đóng cửa · không thích · mưa · trễ giờ) → code (không LLM) tạo tối đa 3 **Proposal** giữ Intent của Stop bị mất, kèm bảng so sánh và giải thích từ số liệu. "Áp dụng" tạo version mới.
+- **Bản đồ theo thời điểm:** kéo giờ → Place tô màu theo mở + đến kịp / mở nhưng xa / đóng; thêm Place vào đúng giờ đó.
+- **Đánh giá:** ~40 kịch bản cố định, so B0 (gần nhất) / B1 (gần nhất + qua bộ lọc) / B2 (engine). Sau đó gán nhãn 0–3, train XGBRanker; chỉ bật khi thắng hàm điểm tay (NDCG@5).
+
+Tiêu chí chấp nhận: "Báo đóng cửa" cho phương án trong < 2 s, cùng Intent, không có Conflict cứng mới, không đụng Pinned Stop; bảng B0/B1/B2 chạy được bằng `uv run python -m eval.run`.
 
 ## 6. Quy tắc nghiệp vụ
 
@@ -156,6 +165,7 @@ Code thực thi, không để prompt quyết định. Nguồn: spec + các quy�
 - Itinerary bất biến. Mọi thay đổi (kể cả "quay lại bản cũ") tạo version mới.
 - Câu chat thắng Traveler Profile khi mâu thuẫn.
 - Trip: 1–7 ngày, 1–10 người, Budget > 0, đúng một Destination.
+- Proposal do code tạo, không do LLM (ADR-0006); không bao giờ tự áp dụng. `rain`/`late` không đụng Pinned Stop.
 
 ## 7. UI/UX
 
@@ -233,7 +243,7 @@ SERVER (docker compose)
   2. AI nháp Tag, mô tả, giá.
   3. **Thành viên kiểm chứng tay** (Place phải có thật và đúng).
   4. Commit JSON.
-- Mục tiêu: Đà Lạt ≥ 150 (hiện 10) trước T4; Đà Nẵng – Hội An và Hà Nội ≥ 150 mỗi nơi trước T8.
+- Mục tiêu: Đà Lạt ≥ 150 (hiện 10) trước T4; Đà Nẵng – Hội An ≥ 150 trước T8 (Destination thứ 3 đã cắt).
 - Ảnh Place lưu local phía server để demo không phụ thuộc mạng.
 
 ## 10. Yêu cầu phi chức năng
@@ -269,20 +279,24 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 | T2–3 | Plan 2: Revision + Pinned + version + Traveler Profile; UI mới (map full, panel nổi, rail, Map↔Timeline) | ⏳ |
 | T4 | Đà Lạt 150 Place; Goong Distance Matrix + Conflict "không kịp" | ⏳ |
 | T5 | Giọng nói (STT/TTS) | ⏳ |
-| T6 | Inspiration Photo → Suggestion | ⏳ |
+| T4–T6 | Revision giữ mục đích (lát A–D, §5.11): Intent, engine, ProposalPanel, mưa/trễ, bản đồ theo thời điểm | ⏳ |
+| T5–T8 | Đánh giá B0/B1/B2 + ranker (lát E) — Quân | ⏳ |
+| T6 | ~~Inspiration Photo~~ (cắt) → Tùng làm bản đồ theo thời điểm | — |
 | T7 | Google login + quên mật khẩu | ⏳ |
-| T8 | Recap + PDF; 2 Destination còn lại | ⏳ |
+| T8 | Recap + PDF; Destination thứ 2 (thứ 3 đã cắt) | ⏳ |
 | T9 | Chuyển sang OpenAI, golden set, polish | ⏳ |
 | T10 | demo_cache, PyInstaller, kịch bản và diễn tập demo | ⏳ |
 
 ## 13. Thứ tự cắt khi trễ
+Đã cắt (2026-09-29, nhường chỗ §5.11): Inspiration Photo, Destination thứ 3.
+
 1. Google login + quên mật khẩu
 2. Cinematic recap (giữ nút "Xem hành trình" đơn giản)
-3. Inspiration Photo
+3. ML ranker (giữ bảng B0/B1/B2)
 4. Onboarding (giữ màn Hồ sơ)
-5. Destination thứ 3
+5. Bản đồ theo thời điểm
 
-**Không cắt:** lõi lập Itinerary · Revision + Pinned + version · email/mật khẩu · UI mới · Đà Lạt 150 Place.
+**Không cắt:** lõi lập Itinerary · Revision + Pinned + version · Disruption → Proposal (lát A–C) · email/mật khẩu · UI mới · Đà Lạt 150 Place.
 
 ## 14. Rủi ro
 | Rủi ro | Xử lý |

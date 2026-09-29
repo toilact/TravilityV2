@@ -103,3 +103,19 @@ _Avoid_: Explanation, note
 **Budget** (Ngân sách):
 Số tiền người dùng muốn chi cho một Trip, bao gồm ăn uống, vé tham quan, Stay và chi phí các Leg trong thành phố. Không bao gồm di chuyển liên tỉnh đến/rời thành phố.
 _Avoid_: Chi phí, price, cost (cost là số ước tính của Itinerary, không phải Budget)
+
+**Intent** (Mục đích):
+Lý do lớn khiến người dùng chọn chuyến đi, gom nhiều Tag lại: ẩm thực, thiên nhiên, văn hoá, thư giãn, vui chơi. Bảng ánh xạ Tag → Intent nằm trong code. Trọng số Intent của Trip suy ra từ Preference (Tag bắt buộc nặng hơn Tag ưu tiên).
+_Avoid_: Goal, purpose, category
+
+**Intent Retention** (Mức giữ mục đích):
+Tỉ lệ có trọng số các Intent của Trip mà Itinerary còn đáp ứng (có ít nhất một Stop thuộc Intent đó). Là chỉ số sản phẩm, không phải xác suất hài lòng.
+_Avoid_: Score, match %, độ phù hợp
+
+**Disruption** (Sự cố):
+Một thay đổi làm Itinerary hiện tại không còn phù hợp: Place đóng cửa, người dùng không thích một Stop, mưa một ngày, hoặc trễ giờ. Do người dùng báo; app không tự đổi lịch.
+_Avoid_: Event, incident, lỗi
+
+**Proposal** (Phương án):
+Một Itinerary ứng viên do code tạo từ một Disruption, kèm số liệu so sánh với bản hiện tại và lý do. Chưa phải phiên bản Itinerary; chỉ thành phiên bản mới khi người dùng áp dụng.
+_Avoid_: Alternative, draft, suggestion (Suggestion là Place, Proposal là cả Itinerary)
