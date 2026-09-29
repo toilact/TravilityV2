@@ -43,6 +43,7 @@ def create_trip(body: NewTrip, user_id: int = Depends(current_user)):
             try:
                 yield from _run(conn, user_id, body.message)
             except openai.OpenAIError:
+                logger.exception("Lỗi gọi AI khi lập lịch trình")
                 yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
             except Exception:
                 logger.exception("Lỗi không lường trước khi lập lịch trình")

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre'
 import polyline from '@mapbox/polyline'
+import { setWorkerUrl } from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import type { Itinerary, Place } from '../api'
+
+// MapLibre v6 tìm worker cạnh file của nó (import.meta.url) — sau khi Vite bundle thì file đó không tồn tại
+setWorkerUrl(workerUrl)
 
 const STYLE_URL = `https://tiles.goong.io/assets/goong_map_web.json?api_key=${import.meta.env.VITE_GOONG_MAPTILES_KEY}`
 export const DAY_COLORS = ['#047857', '#b45309', '#1d4ed8', '#be123c', '#7c3aed', '#0f766e', '#a16207']

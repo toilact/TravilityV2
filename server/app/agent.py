@@ -163,12 +163,8 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
         calls = msg.tool_calls or []
         if msg.content:
             yield {"type": "thinking", "text": msg.content}
-        assistant = {"role": "assistant", "content": msg.content}
-        if calls:
-            assistant["tool_calls"] = [{"id": c.id, "type": "function",
-                                        "function": {"name": c.function.name, "arguments": c.function.arguments}}
-                                       for c in calls]
-        messages.append(assistant)
+        # gửi lại nguyên message: Gemini 3 cần extra_content.thought_signature trong tool_calls
+        messages.append(msg.model_dump(exclude_none=True))
 
         final = None
         for c in calls:
