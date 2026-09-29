@@ -7,10 +7,11 @@ import openai
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app import forecast, llm
-from app.agent import TripParseError, UnsupportedDestination, parse_trip, plan
+from app.agent import TripParseError, UnsupportedDestination, apply_answers, missing_questions, parse_trip, plan
+from app.domain import Hub, Trip, TripAnswers
 from app.auth import current_user
 from app.config import settings
 from app.db import connect, get_conn
@@ -36,12 +37,12 @@ def destinations(conn=Depends(get_conn)):
     return list_destinations(conn)
 
 
-@router.post("/trips")
-def create_trip(body: NewTrip, user_id: int = Depends(current_user)):
+def _stream(run) -> StreamingResponse:
+    """Chạy generator `run(conn)` trong SSE; lỗi → event error tiếng Việt."""
     def events():
         with stream_conn() as conn:
             try:
-                yield from _run(conn, user_id, body.message)
+                yield from run(conn)
             except openai.OpenAIError:
                 logger.exception("Lỗi gọi AI khi lập lịch trình")
                 yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
@@ -50,6 +51,31 @@ def create_trip(body: NewTrip, user_id: int = Depends(current_user)):
                 yield sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."})
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+@router.post("/trips")
+def create_trip(body: NewTrip, user_id: int = Depends(current_user)):
+    return _stream(lambda conn: _run(conn, user_id, body.message))
+
+
+def _hub(dest: dict, trip: Trip) -> Hub | None:
+    h = dest["hubs"].get(trip.arrival_mode) if trip.arrival_mode else None
+    return Hub.model_validate(h) if h else None
+
+
+def _trip_event(trip_id: int, trip: Trip, dest: dict) -> str:
+    return sse({"type": "trip", "trip_id": trip_id, "trip": trip.model_dump(mode="json"),
+                "center": [dest["lon"], dest["lat"]]})
+
+
+def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict):
+    rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days)
+    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, _hub(dest, trip)):
+        if ev["type"] == "itinerary":
+            conn.execute("INSERT INTO itineraries(trip_id, version, data) VALUES (%s, 1, %s)",
+                         (trip_id, Jsonb({"itinerary": ev["itinerary"], "places": ev["places"]})))
+            ev = {**ev, "trip_id": trip_id, "version": 1}
+        yield sse(ev)
 
 
 def _run(conn, user_id: int, message: str):
@@ -64,18 +90,35 @@ def _run(conn, user_id: int, message: str):
         yield sse({"type": "error", "message": str(e)})
         return
     d = dests[trip.destination]
-    trip_json = trip.model_dump(mode="json")
     trip_id = conn.execute("INSERT INTO trips(user_id, spec) VALUES (%s, %s) RETURNING id",
-                           (user_id, Jsonb(trip_json))).fetchone()["id"]
-    yield sse({"type": "trip", "trip_id": trip_id, "trip": trip_json, "center": [d["lon"], d["lat"]]})
+                           (user_id, Jsonb(trip.model_dump(mode="json")))).fetchone()["id"]
+    yield _trip_event(trip_id, trip, d)
+    questions = missing_questions(trip)
+    if questions:
+        yield sse({"type": "clarify", "trip_id": trip_id, "questions": questions})
+        return
+    yield from _plan_and_save(conn, client, trip_id, trip, d)
 
-    rain = forecast.get_rain_chance(d["lat"], d["lon"], trip.start_date, trip.days)
-    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain):
-        if ev["type"] == "itinerary":
-            conn.execute("INSERT INTO itineraries(trip_id, version, data) VALUES (%s, 1, %s)",
-                         (trip_id, Jsonb({"itinerary": ev["itinerary"], "places": ev["places"]})))
-            ev = {**ev, "trip_id": trip_id, "version": 1}
-        yield sse(ev)
+
+@router.post("/trips/{trip_id}/plan")
+def plan_trip(trip_id: int, answers: TripAnswers, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+    row = conn.execute("SELECT spec FROM trips WHERE id = %s AND user_id = %s", (trip_id, user_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "Không tìm thấy chuyến đi")
+    if conn.execute("SELECT 1 FROM itineraries WHERE trip_id = %s", (trip_id,)).fetchone():
+        raise HTTPException(409, "Chuyến đi đã có lịch trình")
+    try:
+        trip = apply_answers(Trip.model_validate(row["spec"]), answers)
+    except ValidationError as e:
+        raise HTTPException(422, e.errors()[0]["msg"].removeprefix("Value error, ")) from None
+    conn.execute("UPDATE trips SET spec = %s WHERE id = %s", (Jsonb(trip.model_dump(mode="json")), trip_id))
+
+    def run(c):
+        dest = next(d for d in list_destinations(c) if d["slug"] == trip.destination)
+        yield _trip_event(trip_id, trip, dest)
+        yield from _plan_and_save(c, llm.chat_client(), trip_id, trip, dest)
+
+    return _stream(run)
 
 
 @router.get("/trips")

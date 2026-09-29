@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app import forecast, llm, trips
 from app.db import get_conn
+from app.domain import Trip
 from app.main import app
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
@@ -36,8 +37,15 @@ def use_llm(monkeypatch, responses):
     monkeypatch.setattr(llm, "chat_client", lambda: FakeClient(responses))
 
 
+def ask_first(conn, client, monkeypatch, record=None):
+    """POST /trips với câu thiếu Travel Mode → trả (headers, events)."""
+    use_llm(monkeypatch, [reply(("record_trip", record or {"destination": "da-lat", "days": 1, "budget": 2_000_000}))])
+    h = auth(client)
+    return h, events(client.post("/trips", json={"message": "Đà Lạt 1 ngày"}, headers=h))
+
+
 def happy(pid):
-    return [reply(("record_trip", {"destination": "da-lat", "days": 1, "budget": 2_000_000})),
+    return [reply(("record_trip", {"destination": "da-lat", "days": 1, "budget": 2_000_000, "travel_mode": "grab"})),
             reply(("search_places", {"query": "cafe"})),
             reply(("submit_itinerary", {"summary": "ok", "days": [{"stops": [
                 {"place_id": pid, "start_time": "09:00", "duration_min": 60, "reason": "cafe-chill"}]}]}))]
@@ -90,3 +98,68 @@ def test_unexpected_exception_is_error_event(client, conn, monkeypatch):
 
 def test_requires_login(client):
     assert client.post("/trips", json={"message": "x"}).status_code == 401
+
+
+def test_missing_info_ends_with_clarify(client, conn, monkeypatch):
+    add_place(conn)
+    _, evs = ask_first(conn, client, monkeypatch)
+    assert [e["type"] for e in evs] == ["thinking", "trip", "clarify"]
+    assert [q["field"] for q in evs[-1]["questions"]] == ["travel_mode"]
+    assert evs[-1]["trip_id"] == evs[1]["trip_id"]
+
+
+def test_plan_applies_answers_and_persists(client, conn, monkeypatch):
+    pid = add_place(conn, kind="cafe")
+    h, evs = ask_first(conn, client, monkeypatch)
+    trip_id = evs[-1]["trip_id"]
+    use_llm(monkeypatch, happy(pid)[1:])
+    evs = events(client.post(f"/trips/{trip_id}/plan", json={"travel_mode": "o-to-rieng"}, headers=h))
+    assert [e["type"] for e in evs] == ["trip", "tool_call", "itinerary"]
+    assert evs[0]["trip"]["travel_mode"] == "o-to-rieng"
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["trip"]["travel_mode"] == "o-to-rieng"
+
+
+def test_plan_skip_uses_default_travel_mode(client, conn, monkeypatch):
+    pid = add_place(conn)
+    h, evs = ask_first(conn, client, monkeypatch)
+    use_llm(monkeypatch, happy(pid)[1:])
+    evs = events(client.post(f"/trips/{evs[-1]['trip_id']}/plan", json={}, headers=h))
+    assert evs[0]["trip"]["travel_mode"] == "xe-may"
+
+
+def test_plan_twice_is_409(client, conn, monkeypatch):
+    pid = add_place(conn)
+    use_llm(monkeypatch, happy(pid))
+    h = auth(client)
+    trip_id = events(client.post("/trips", json={"message": "x"}, headers=h))[-1]["trip_id"]
+    assert client.post(f"/trips/{trip_id}/plan", json={}, headers=h).status_code == 409
+
+
+def test_plan_other_users_trip_is_404(client, conn, monkeypatch):
+    add_place(conn)
+    _, evs = ask_first(conn, client, monkeypatch)
+    other = auth(client, "binh@example.com")
+    assert client.post(f"/trips/{evs[-1]['trip_id']}/plan", json={}, headers=other).status_code == 404
+
+
+def test_plan_bad_times_is_422_in_vietnamese(client, conn, monkeypatch):
+    add_place(conn)
+    h, evs = ask_first(conn, client, monkeypatch)
+    r = client.post(f"/trips/{evs[-1]['trip_id']}/plan",
+                    json={"arrival_time": "15:00", "departure_time": "10:00"}, headers=h)
+    assert r.status_code == 422 and r.json()["detail"] == "Giờ về phải sau giờ đến"
+
+
+def test_arrival_hub_starts_day_one(client, conn, monkeypatch):
+    pid = add_place(conn)
+    conn.execute("""UPDATE destinations SET hubs = '{"may-bay": {"name": "Sân bay", "lat": 11.75, "lon": 108.37}}'""")
+    record = {"destination": "da-lat", "days": 1, "budget": 2_000_000, "travel_mode": "grab", "arrival_mode": "may-bay"}
+    use_llm(monkeypatch, [reply(("record_trip", record)), *happy(pid)[1:]])
+    evs = events(client.post("/trips", json={"message": "x"}, headers=auth(client)))
+    assert evs[-1]["itinerary"]["days"][0]["legs"][0]["from_place_id"] is None
+
+
+def test_hub_missing_for_arrival_mode_falls_back():
+    trip = Trip(destination="da-lat", days=1, budget=1, arrival_mode="tau")
+    assert trips._hub({"hubs": {"may-bay": {"name": "x", "lat": 1, "lon": 1}}}, trip) is None
+    assert trips._hub({"hubs": {}}, Trip(destination="da-lat", days=1, budget=1)) is None
