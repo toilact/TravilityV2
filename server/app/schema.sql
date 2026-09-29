@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS trips (
   spec jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_messages text[] NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS itineraries (
   id serial PRIMARY KEY,

@@ -163,3 +163,51 @@ def test_hub_missing_for_arrival_mode_falls_back():
     trip = Trip(destination="da-lat", days=1, budget=1, arrival_mode="tau")
     assert trips._hub({"hubs": {"may-bay": {"name": "x", "lat": 1, "lon": 1}}}, trip) is None
     assert trips._hub({"hubs": {}}, Trip(destination="da-lat", days=1, budget=1)) is None
+
+
+def follow_up(conn, pid, record):
+    return FakeClient([reply(("record_trip", record)), *happy(pid)[1:]])
+
+
+def test_follow_up_message_continues_same_trip(client, conn, monkeypatch):
+    pid = add_place(conn)
+    h, evs = ask_first(conn, client, monkeypatch)
+    trip_id = evs[-1]["trip_id"]
+    fake = follow_up(conn, pid, {"destination": "da-lat", "days": 1, "budget": 2_000_000, "travel_mode": "xe-may",
+                                 "preferred_tags": ["gia-re"]})
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    evs = events(client.post("/trips", json={"message": "bằng xe máy, rẻ thôi", "trip_id": trip_id}, headers=h))
+    assert [e["type"] for e in evs] == ["thinking", "trip", "tool_call", "itinerary"]
+    assert evs[1]["trip_id"] == trip_id and evs[1]["trip"]["preferred_tags"] == ["gia-re"]
+    parse_input = fake.calls[0]["messages"][1]["content"]
+    assert "Đà Lạt 1 ngày" in parse_input and "bằng xe máy, rẻ thôi" in parse_input
+    assert "bằng xe máy, rẻ thôi" in fake.calls[1]["messages"][1]["content"]  # prompt lập lịch có nguyên văn
+    assert conn.execute("SELECT count(*) AS n FROM trips").fetchone()["n"] == 1
+
+
+def test_follow_up_never_asks_twice(client, conn, monkeypatch):
+    pid = add_place(conn)
+    h, evs = ask_first(conn, client, monkeypatch)
+    fake = follow_up(conn, pid, {"destination": "da-lat", "days": 1, "budget": 2_000_000})  # vẫn thiếu Travel Mode
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    evs = events(client.post("/trips", json={"message": "sao cũng được", "trip_id": evs[-1]["trip_id"]}, headers=h))
+    assert evs[-1]["type"] == "itinerary" and evs[1]["trip"]["travel_mode"] == "xe-may"
+
+
+def test_follow_up_after_itinerary_is_next_version(client, conn, monkeypatch):
+    pid = add_place(conn)
+    use_llm(monkeypatch, happy(pid))
+    h = auth(client)
+    trip_id = events(client.post("/trips", json={"message": "x"}, headers=h))[-1]["trip_id"]
+    use_llm(monkeypatch, happy(pid))
+    evs = events(client.post("/trips", json={"message": "rẻ hơn", "trip_id": trip_id}, headers=h))
+    assert evs[-1]["version"] == 2
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 2
+
+
+def test_follow_up_on_other_users_trip_is_404(client, conn, monkeypatch):
+    add_place(conn)
+    _, evs = ask_first(conn, client, monkeypatch)
+    other = auth(client, "binh@example.com")
+    r = client.post("/trips", json={"message": "x", "trip_id": evs[-1]["trip_id"]}, headers=other)
+    assert r.status_code == 404

@@ -123,3 +123,9 @@ def test_brief_mentions_times_and_hub():
     text = trip_brief(trip, None, Hub(name="Sân bay Liên Khương", lat=11.75, lon=108.37))
     assert "14:00" in text and "20:00" in text and "Sân bay Liên Khương" in text
     assert "Travel Mode: xe-may" in text  # chưa nói → mặc định
+
+
+def test_brief_quotes_user_messages():
+    trip = Trip(destination="da-lat", days=2, budget=1)
+    text = trip_brief(trip, None, None, ["Đà Lạt 2 ngày, phải đi vườn hoa", "khách sạn rẻ hơn"])
+    assert "phải đi vườn hoa" in text and "khách sạn rẻ hơn" in text

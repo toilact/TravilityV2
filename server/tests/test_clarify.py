@@ -3,7 +3,7 @@ import datetime as dt
 import pytest
 from pydantic import ValidationError
 
-from app.agent import apply_answers, missing_questions
+from app.agent import apply_answers, merge_trip, missing_questions
 from app.domain import Trip, TripAnswers
 
 BASE = {"destination": "da-lat", "days": 2, "budget": 1}
@@ -42,3 +42,15 @@ def test_apply_answers_revalidates_times():
     with pytest.raises(ValidationError, match="Giờ về phải sau giờ đến"):
         apply_answers(Trip(destination="da-lat", days=1, budget=1),
                       TripAnswers(arrival_time="15:00", departure_time="10:00"))
+
+
+def test_merge_keeps_previous_answers_when_follow_up_is_silent():
+    old = Trip(**BASE, travel_mode="o-to-rieng", arrival_time="14:00", start_date=DATE)
+    new = Trip(destination="da-lat", days=2, budget=1, preferred_tags=["gia-re"])
+    t = merge_trip(old, new)
+    assert (t.travel_mode, t.arrival_time, t.start_date, t.preferred_tags) == ("o-to-rieng", "14:00", DATE, ["gia-re"])
+
+
+def test_merge_lets_follow_up_override():
+    t = merge_trip(Trip(**BASE, travel_mode="grab"), Trip(**BASE, travel_mode="xe-may-rieng"))
+    assert t.travel_mode == "xe-may-rieng"

@@ -27,7 +27,8 @@ Chỉ điền start_date (YYYY-MM-DD) khi người dùng nói rõ ngày đi.
 Pace: "nhẹ nhàng/thong thả" = thong-tha, "đi nhiều/khám phá hết" = day, còn lại = vua.
 Chỉ dùng Tag trong danh sách cho phép; Tag người dùng nói không muốn → avoided_tags.
 Travel Mode (đi lại trong thành phố): thuê xe máy = xe-may, Grab/taxi = grab, xe máy của mình = xe-may-rieng, ô tô của mình = o-to-rieng.
-Chỉ điền travel_mode, origin_city, arrival_mode, arrival_time, departure_time khi người dùng nói rõ; không đoán."""
+Chỉ điền travel_mode, origin_city, arrival_mode, arrival_time, departure_time khi người dùng nói rõ; không đoán.
+Nhiều tin nhắn = cùng một chuyến, theo thứ tự thời gian; tin sau thắng tin trước khi mâu thuẫn."""
 
 
 def _trip_tool(dest_slugs: list[str]) -> dict:
@@ -101,6 +102,18 @@ def missing_questions(trip: Trip) -> list[dict]:
     return qs
 
 
+KEEP_IF_UNSAID = ("start_date", "travel_mode", "origin_city", "arrival_mode", "arrival_time", "departure_time")
+
+
+def merge_trip(old: Trip, new: Trip) -> Trip:
+    """Tin nhắn tiếp theo của cùng Trip: trường người dùng không nhắc lại (vd đã chọn bằng chip) giữ giá trị cũ."""
+    data = new.model_dump()
+    for k in KEEP_IF_UNSAID:
+        if data[k] is None:
+            data[k] = getattr(old, k)
+    return Trip.model_validate(data)
+
+
 def apply_answers(trip: Trip, answers: TripAnswers) -> Trip:
     """Áp câu trả lời clarify vào Trip; Travel Mode vẫn trống → mặc định. Validate lại (giờ về > giờ đến)."""
     data = trip.model_dump() | answers.model_dump(exclude_none=True)
@@ -151,7 +164,8 @@ PLAN_TOOLS = [
 ]
 
 
-def trip_brief(trip: Trip, rain: list[int | None] | None, hub: Hub | None = None) -> str:
+def trip_brief(trip: Trip, rain: list[int | None] | None, hub: Hub | None = None,
+               user_messages: list[str] = ()) -> str:
     lo, hi = PACE_STOPS[trip.pace]
     start, end = PACE_HOURS[trip.pace]
     when = f", bắt đầu {trip.start_date.isoformat()}" if trip.start_date else ""
@@ -176,6 +190,9 @@ def trip_brief(trip: Trip, rain: list[int | None] | None, hub: Hub | None = None
     if rain:
         chances = ", ".join(f"ngày {i + 1}: {'?' if r is None else str(r) + '%'}" for i, r in enumerate(rain))
         lines.append(f"Khả năng mưa: {chances}")
+    if user_messages:  # nguyên văn để AI không mất ý như "phải đi vườn hoa", "khách sạn rẻ hơn"
+        lines.append("Người dùng đã nói (theo thứ tự, câu sau thắng câu trước):")
+        lines += [f"- {m}" for m in user_messages]
     return "\n".join(lines)
 
 
@@ -198,10 +215,10 @@ def _itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
 
 
 def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] | None,
-         hub: Hub | None = None) -> Iterator[dict]:
+         hub: Hub | None = None, user_messages: list[str] = ()) -> Iterator[dict]:
     seen: dict[int, Place] = {}  # chỉ Place AI đã nhận từ search_places mới hợp lệ
     messages = [{"role": "system", "content": PLAN_PROMPT},
-                {"role": "user", "content": trip_brief(trip, rain, hub)}]
+                {"role": "user", "content": trip_brief(trip, rain, hub, user_messages)}]
     submits = invalid = 0
     last: Itinerary | None = None
 
