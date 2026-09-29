@@ -167,8 +167,8 @@ def test_arrival_hub_starts_day_one(client, conn, monkeypatch):
 
 def test_hub_missing_for_arrival_mode_falls_back():
     trip = Trip(destination="da-lat", days=1, budget=1, arrival_mode="tau")
-    assert trips._hub({"hubs": {"may-bay": {"name": "x", "lat": 1, "lon": 1}}}, trip) is None
-    assert trips._hub({"hubs": {}}, Trip(destination="da-lat", days=1, budget=1)) is None
+    assert trips.hub_for({"hubs": {"may-bay": {"name": "x", "lat": 1, "lon": 1}}}, trip) is None
+    assert trips.hub_for({"hubs": {}}, Trip(destination="da-lat", days=1, budget=1)) is None
 
 
 def follow_up(conn, pid, record):

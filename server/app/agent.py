@@ -207,7 +207,7 @@ def _for_llm(p: Place) -> dict:
             "outdoor": p.outdoor, "open_hours": p.open_hours, "lat": round(p.lat, 4), "lon": round(p.lon, 4)}
 
 
-def _itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
+def itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
     used = {s.place_id for d in itin.days for s in d.stops}
     if itin.stay_place_id is not None:
         used.add(itin.stay_place_id)
@@ -260,7 +260,7 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
                     invalid += 1
                     if invalid > MAX_INVALID:
                         if last:  # đã có phương án hợp lệ trước đó → trả phương án đó thay vì báo lỗi
-                            yield _itinerary_event(last, seen)
+                            yield itinerary_event(last, seen)
                         else:
                             yield {"type": "error", "message": "AI chưa lập được lịch trình hợp lệ, bạn thử lại nhé."}
                         return
@@ -277,10 +277,10 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
             messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
 
         if final:
-            yield _itinerary_event(final, seen)
+            yield itinerary_event(final, seen)
             return
 
     if last:  # hết lượt nhưng đã có phương án → trả phương án tốt nhất (best-effort)
-        yield _itinerary_event(last, seen)
+        yield itinerary_event(last, seen)
     else:
         yield {"type": "error", "message": "AI chưa hoàn thành lịch trình, bạn thử lại nhé."}

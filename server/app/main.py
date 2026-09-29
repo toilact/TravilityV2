@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import auth, trips
+from app import auth, proposals, trips
 from app.config import settings
 from app.db import apply_schema, connect
 
@@ -24,6 +24,7 @@ app = FastAPI(title="Travility", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(auth.router)
 app.include_router(trips.router)
+app.include_router(proposals.router)
 
 
 @app.get("/health")

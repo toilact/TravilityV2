@@ -48,3 +48,16 @@ CREATE TABLE IF NOT EXISTS itineraries (
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (trip_id, version)
 );
+
+-- Disruption → Proposal; kiêm log feedback (đã hiện gì, chọn gì) cho ranker (spec revision-giu-muc-dich §5.1)
+CREATE TABLE IF NOT EXISTS proposals (
+  id serial PRIMARY KEY,
+  trip_id integer NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  base_version integer NOT NULL,
+  disruption jsonb NOT NULL,
+  options jsonb NOT NULL,
+  no_feasible text[],
+  chosen_index integer,
+  applied_version integer,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

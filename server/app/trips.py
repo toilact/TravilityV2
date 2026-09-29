@@ -66,7 +66,7 @@ def create_trip(body: NewTrip, user_id: int = Depends(current_user), conn=Depend
     return _stream(lambda c: _run(c, user_id, body.message, prev))
 
 
-def _hub(dest: dict, trip: Trip) -> Hub | None:
+def hub_for(dest: dict, trip: Trip) -> Hub | None:
     h = dest["hubs"].get(trip.arrival_mode) if trip.arrival_mode else None
     return Hub.model_validate(h) if h else None
 
@@ -76,15 +76,20 @@ def _trip_event(trip_id: int, trip: Trip, dest: dict) -> str:
                 "center": [dest["lon"], dest["lat"]]})
 
 
+def save_itinerary(conn, trip_id: int, itinerary: dict, places: dict) -> int:
+    """Lưu một version Itinerary mới (bất biến) và trả số version."""
+    return conn.execute(
+        """INSERT INTO itineraries(trip_id, version, data)
+           SELECT %s, COALESCE(MAX(version), 0) + 1, %s FROM itineraries WHERE trip_id = %s
+           RETURNING version""",
+        (trip_id, Jsonb({"itinerary": itinerary, "places": places}), trip_id)).fetchone()["version"]
+
+
 def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str]):
     rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days)
-    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, _hub(dest, trip), user_messages):
+    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages):
         if ev["type"] == "itinerary":
-            version = conn.execute(
-                """INSERT INTO itineraries(trip_id, version, data)
-                   SELECT %s, COALESCE(MAX(version), 0) + 1, %s FROM itineraries WHERE trip_id = %s
-                   RETURNING version""",
-                (trip_id, Jsonb({"itinerary": ev["itinerary"], "places": ev["places"]}), trip_id)).fetchone()["version"]
+            version = save_itinerary(conn, trip_id, ev["itinerary"], ev["places"])
             ev = {**ev, "trip_id": trip_id, "version": version}
         yield sse(ev)
 
