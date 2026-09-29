@@ -109,3 +109,18 @@ def test_lost_place_without_intent():
     opts = propose(TRIP, itin, places, closed(), cands(P(10, tags=["gia-re"])))
     assert not any(c.startswith("INTENT_") for c in opts[0].reason_codes)
     assert "mục đích" not in opts[0].explanation
+
+
+def test_intent_still_covered_elsewhere_is_not_reported_lost():
+    other_cafe = P(3, tags=["cafe-chill"])
+    places, itin = setup([(LOST, "09:00"), (MUSEUM, "11:00"), (other_cafe, "14:00")])
+    opts = propose(TRIP, itin, places, closed(), cands(P(10, tags=["check-in"])))
+    assert opts[0].metrics["intents_lost"] == []
+    assert "không còn" not in opts[0].explanation
+
+
+def test_only_trip_intents_are_mentioned():
+    places, itin = setup([(P(1, tags=["cafe-chill", "check-in"]), "09:00")])
+    opts = propose(TRIP, itin, places, closed(), cands(P(10, tags=["cafe-chill"])))
+    assert opts[0].reason_codes[0] == "INTENT_MATCH"
+    assert "Vui chơi" not in opts[0].explanation

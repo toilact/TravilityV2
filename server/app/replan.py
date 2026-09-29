@@ -98,6 +98,12 @@ def _hard(itin: Itinerary) -> set[tuple[str, int | None]]:
     return {(c.kind, c.day_index) for c in itin.conflicts if c.kind in HARD}
 
 
+def _stop_intents(trip: Trip, p: Place) -> set[str]:
+    """Intent của Place mà Trip quan tâm; Trip không có Intent nào thì lấy mọi Intent của Place."""
+    w = intent_weights(trip)
+    return place_intents(p.tags) & w.keys() if w else place_intents(p.tags)
+
+
 def _labels(intents) -> str:
     return ", ".join(INTENT_LABELS[i] for i in sorted(intents))
 
@@ -111,12 +117,12 @@ def _day_end(day: Day) -> str:
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
-def _explain(li: set, kept: set, travel_delta: int, cost_delta: int, day_end: str, di: int) -> str:
+def _explain(kept: set, lost: set, travel_delta: int, cost_delta: int, day_end: str, di: int) -> str:
     parts = []
     if kept:
         parts.append(f"giữ mục đích {_labels(kept)}")
-    if li - kept:
-        parts.append(f"không còn {_labels(li - kept)}")
+    if lost:
+        parts.append(f"chuyến không còn {_labels(lost)}")
     parts.append("thời gian di chuyển như cũ" if travel_delta == 0
                  else f"{'thêm' if travel_delta > 0 else 'bớt'} {abs(travel_delta)} phút di chuyển")
     parts.append("chi phí như cũ" if cost_delta == 0
@@ -128,8 +134,10 @@ def _explain(li: set, kept: set, travel_delta: int, cost_delta: int, day_end: st
 
 def _option(trip: Trip, old: Itinerary, new: Itinerary, at: tuple[int, int], lost: Place, cand: Place,
             prev: Point, nxt: Point) -> ProposalOption:
-    li = place_intents(lost.tags)
+    li = _stop_intents(trip, lost)
     kept = li & place_intents(cand.tags)
+    # "không còn" chỉ khi cả chuyến mất Intent đó, không phải khi Stop khác vẫn đáp ứng
+    lost_trip = {k for k, hit in old.intents.items() if hit and not new.intents.get(k)}
     cost_delta = new.total_cost - old.total_cost
     travel_delta = _travel_min(new) - _travel_min(old)
     di = at[0]
@@ -148,10 +156,10 @@ def _option(trip: Trip, old: Itinerary, new: Itinerary, at: tuple[int, int], los
     metrics = {"cost_delta": cost_delta, "travel_min_delta": travel_delta,
                "day_end_before": _day_end(old.days[di]), "day_end_after": day_end,
                "retention_before": old.retention, "retention_after": new.retention,
-               "intents_kept": sorted(kept), "intents_lost": sorted(li - kept),
+               "intents_kept": sorted(kept), "intents_lost": sorted(lost_trip),
                "features": features(trip, lost, cand, prev, nxt)}
     return ProposalOption(itinerary=new, added=[cand], changed=[at], metrics=metrics, reason_codes=codes,
-                          explanation=_explain(li, kept, travel_delta, cost_delta, day_end, di))
+                          explanation=_explain(kept, lost_trip, travel_delta, cost_delta, day_end, di))
 
 
 def propose(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption, candidates_fn: CandidatesFn,
@@ -181,7 +189,7 @@ def propose(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption
         if len(options) == N_OPTIONS:
             break
         draft = to_draft(itin)
-        kept = place_intents(lost.tags) & place_intents(c.tags)
+        kept = _stop_intents(trip, lost) & place_intents(c.tags)
         draft.days[d.day_index].stops[d.stop_index] = DraftStop(
             place_id=c.id, start_time=stop.start_time, duration_min=stop.duration_min,
             reason=f"Thay {lost.name} ({KIND_TEXT[d.kind]})" + (f" — cùng mục đích {_labels(kept)}" if kept else ""))

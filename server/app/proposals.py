@@ -1,5 +1,6 @@
 """Disruption → Proposal → áp dụng (spec revision-giu-muc-dich §5). Không gọi LLM (ADR-0006)."""
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
@@ -95,7 +96,10 @@ def apply_proposal(trip_id: int, proposal_id: int, body: ApplyIn, user_id: int =
             if p["base_version"] != _latest_version(conn, trip_id):
                 raise HTTPException(409, STALE)
             opt = p["options"][body.option]
-            version = save_itinerary(conn, trip_id, opt["itinerary"], opt["places"])
+            try:
+                version = save_itinerary(conn, trip_id, opt["itinerary"], opt["places"])
+            except UniqueViolation:  # lần lưu khác (phương án khác / chat) vừa chiếm số version này
+                raise HTTPException(409, STALE) from None
             conn.execute("UPDATE proposals SET chosen_index = %s, applied_version = %s WHERE id = %s",
                          (body.option, version, proposal_id))
     opt = p["options"][body.option]

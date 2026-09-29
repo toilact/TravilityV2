@@ -112,3 +112,45 @@ def test_no_feasible_when_no_same_kind_place(client, conn):
     body = disrupt(client, h, tid, stop=1).json()  # Bảo tàng: không có tham-quan nào khác
     assert body["no_feasible"] == ["NO_CANDIDATE"]
     assert "options" not in body
+
+
+def test_concurrent_apply_of_two_proposals_second_gets_409(client, conn, monkeypatch):
+    import threading
+
+    from fastapi import HTTPException
+
+    from app import proposals
+    from app.proposals import ApplyIn, apply_proposal
+    from tests.conftest import TEST_URL
+    from app.db import connect
+
+    h, tid = seed(conn, client)
+    p1 = disrupt(client, h, tid).json()["proposal_id"]
+    p2 = disrupt(client, h, tid, kind="disliked").json()["proposal_id"]
+    uid = conn.execute("SELECT user_id FROM trips WHERE id = %s", (tid,)).fetchone()["user_id"]
+    gate = threading.Barrier(2, timeout=5)
+    real = proposals._latest_version
+
+    def latest_then_wait(c, trip_id):  # cả hai cùng qua bước kiểm version rồi mới lưu
+        v = real(c, trip_id)
+        gate.wait()
+        return v
+
+    monkeypatch.setattr(proposals, "_latest_version", latest_then_wait)
+    results = {}
+
+    def run(pid):
+        c = connect(TEST_URL)
+        try:
+            results[pid] = apply_proposal(tid, pid, ApplyIn(option=0), uid, c)["version"]
+        except HTTPException as e:
+            results[pid] = e.status_code
+        except Exception as e:  # noqa: BLE001 — ghi lại lỗi 500 để assert
+            results[pid] = type(e).__name__
+        finally:
+            c.close()
+
+    ts = [threading.Thread(target=run, args=(p,)) for p in (p1, p2)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert sorted(results.values(), key=str) == sorted([2, 409], key=str)
