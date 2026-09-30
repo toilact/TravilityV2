@@ -142,11 +142,11 @@ export type ProposalOption = {
 }
 export type Proposal = { proposal_id: number; options?: ProposalOption[]; no_feasible?: string[] }
 
-async function postJSON<T>(token: string, path: string, body: unknown): Promise<T> {
+async function request<T>(token: string, path: string, method = 'GET', body?: unknown): Promise<T> {
   const r = await fetch(API + path, {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   })
   if (r.status === 401) throw new Error('unauthorized')
   const data = await r.json().catch(() => ({}))
@@ -156,11 +156,11 @@ async function postJSON<T>(token: string, path: string, body: unknown): Promise<
 
 export const reportDisruption = (token: string, tripId: number, version: number, kind: DisruptionKind,
   dayIndex: number, stopIndex: number) =>
-  postJSON<Proposal>(token, `/trips/${tripId}/disruptions`,
+  request<Proposal>(token, `/trips/${tripId}/disruptions`, 'POST',
     { version, kind, day_index: dayIndex, stop_index: stopIndex })
 
 export const applyProposal = (token: string, tripId: number, proposalId: number, option: number) =>
-  postJSON<ItineraryEvent>(token, `/trips/${tripId}/proposals/${proposalId}/apply`, { option })
+  request<ItineraryEvent>(token, `/trips/${tripId}/proposals/${proposalId}/apply`, 'POST', { option })
 
 const NO_FEASIBLE_TEXT: Record<string, string> = {
   NO_CANDIDATE: 'Chưa có Place nào cùng loại để thay.',
@@ -178,3 +178,32 @@ export function optionPlace(o: ProposalOption): Place | undefined {
 
 export const signed = (n: number, unit: (x: number) => string) =>
   n === 0 ? 'như cũ' : (n > 0 ? '+' : '−') + unit(Math.abs(n))
+
+export type TripSummary = {
+  id: number; spec: { destination: string; days: number }; created_at: string; destination_name: string | null
+}
+export type TripView = {
+  trip_id: number; trip: { budget: number }; center: [number, number]; version: number | null
+  itinerary: Itinerary | null; places: Record<string, Place>; versions: number[]; pinned_place_ids: number[]
+}
+export type Message = { role: 'user' | 'ai'; text: string; version: number | null }
+export type RestoreEvent = ItineraryEvent & { pinned_place_ids: number[] }
+
+export const listTrips = (token: string) => request<TripSummary[]>(token, '/trips')
+export const getTrip = (token: string, id: number, version?: number) =>
+  request<TripView>(token, `/trips/${id}` + (version != null ? `?version=${version}` : ''))
+export const getMessages = (token: string, id: number) => request<Message[]>(token, `/trips/${id}/messages`)
+export const setPin = (token: string, tripId: number, placeId: number, pinned: boolean) =>
+  request<{ pinned_place_ids: number[] }>(token, `/trips/${tripId}/pins`, 'PATCH', { place_id: placeId, pinned })
+export const restoreVersion = (token: string, tripId: number, version: number) =>
+  request<RestoreEvent>(token, `/trips/${tripId}/restore/${version}`, 'POST', {})
+
+/** Đang xem một bản cũ (chỉ đọc) chứ không phải bản mới nhất. */
+export const viewingOld = (version: number | null, latest: number | null) =>
+  version != null && latest != null && version !== latest
+
+export function tripLabel(t: TripSummary): string {
+  const d = new Date(t.created_at)
+  const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0')
+  return `${t.destination_name ?? t.spec.destination} · ${t.spec.days} ngày · ${dd}/${mm}`
+}

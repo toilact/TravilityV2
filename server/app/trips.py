@@ -86,12 +86,18 @@ def save_itinerary(conn, trip_id: int, itinerary: dict, places: dict) -> int:
         (trip_id, Jsonb({"itinerary": itinerary, "places": places}), trip_id)).fetchone()["version"]
 
 
+def log_message(conn, trip_id: int, role: str, text: str, version: int | None = None) -> None:
+    conn.execute("INSERT INTO messages(trip_id, role, text, version) VALUES (%s, %s, %s, %s)",
+                 (trip_id, role, text, version))
+
+
 def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str], previous=None):
     rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days)
     for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages,
                    previous):
         if ev["type"] == "itinerary":
             version = save_itinerary(conn, trip_id, ev["itinerary"], ev["places"])
+            log_message(conn, trip_id, "ai", ev["itinerary"]["summary"], version)
             ev = {**ev, "trip_id": trip_id, "version": version}
         yield sse(ev)
 
@@ -102,10 +108,25 @@ def _parse_input(user_messages: list[str]) -> str:
     return "\n".join(f"Tin nhắn {i + 1}: {m}" for i, m in enumerate(user_messages))
 
 
+def load_itinerary(conn, trip_id: int, version: int | None = None) -> tuple[int, Itinerary, dict] | None:
+    """Đọc một version (mặc định bản mới nhất); stop.pinned lấy từ trips.pinned_place_ids, không từ data đã lưu."""
+    row = conn.execute(
+        """SELECT i.version, i.data, t.pinned_place_ids FROM itineraries i JOIN trips t ON t.id = i.trip_id
+           WHERE i.trip_id = %s AND (%s::int IS NULL OR i.version = %s) ORDER BY i.version DESC LIMIT 1""",
+        (trip_id, version, version)).fetchone()
+    if not row:
+        return None
+    itin = Itinerary.model_validate(row["data"]["itinerary"])
+    pins = set(row["pinned_place_ids"])
+    for d in itin.days:
+        for s in d.stops:
+            s.pinned = s.place_id in pins
+    return row["version"], itin, row["data"]["places"]
+
+
 def latest_itinerary(conn, trip_id: int) -> tuple[int, Itinerary] | None:
-    row = conn.execute("SELECT version, data FROM itineraries WHERE trip_id = %s ORDER BY version DESC LIMIT 1",
-                       (trip_id,)).fetchone()
-    return (row["version"], Itinerary.model_validate(row["data"]["itinerary"])) if row else None
+    r = load_itinerary(conn, trip_id)
+    return (r[0], r[1]) if r else None
 
 
 def itinerary_places(conn, itin: Itinerary) -> dict:
@@ -128,11 +149,15 @@ def _follow_up(conn, client, prev: dict, itin: Itinerary, dest: dict, message: s
         if ev["type"] == "confirm_replan":
             conn.execute("UPDATE trips SET pending_replan = %s WHERE id = %s",
                          (Jsonb({k: ev[k] for k in ("changes", "message", "text")}), prev["id"]))
+            log_message(conn, prev["id"], "ai", ev["text"])
             ev = {**ev, "trip_id": prev["id"]}
         elif ev["type"] == "itinerary":
             version = save_itinerary(conn, prev["id"], ev["itinerary"], ev["places"])
+            log_message(conn, prev["id"], "ai", ev["itinerary"]["summary"], version)
             conn.execute("UPDATE trips SET user_messages = user_messages || %s WHERE id = %s", ([message], prev["id"]))
             ev = {**ev, "trip_id": prev["id"], "version": version}
+        elif ev["type"] == "answer":
+            log_message(conn, prev["id"], "ai", ev["text"])
         yield sse(ev)
 
 
@@ -160,6 +185,7 @@ def _run(conn, user_id: int, message: str, prev: dict | None = None):
     yield sse({"type": "thinking", "text": "Đang đọc yêu cầu của bạn…"})
     latest = latest_itinerary(conn, prev["id"]) if prev else None
     if latest:
+        log_message(conn, prev["id"], "user", message)
         yield from _follow_up(conn, client, prev, latest[1], dests[prev["spec"]["destination"]], message)
         return
     try:
@@ -182,6 +208,7 @@ def _run(conn, user_id: int, message: str, prev: dict | None = None):
     else:
         trip_id = conn.execute("INSERT INTO trips(user_id, spec, user_messages) VALUES (%s, %s, %s) RETURNING id",
                                (user_id, spec, user_messages)).fetchone()["id"]
+    log_message(conn, trip_id, "user", message)
     yield _trip_event(trip_id, trip, d)
     questions = [] if prev else missing_questions(trip)
     if questions:
@@ -235,19 +262,26 @@ def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user)
 
 @router.get("/trips")
 def list_trips(user_id: int = Depends(current_user), conn=Depends(get_conn)):
-    return conn.execute("SELECT id, spec, created_at FROM trips WHERE user_id = %s ORDER BY id DESC",
-                        (user_id,)).fetchall()
+    return conn.execute(
+        """SELECT t.id, t.spec, t.created_at, d.name AS destination_name
+           FROM trips t LEFT JOIN destinations d ON d.slug = t.spec->>'destination'
+           WHERE t.user_id = %s ORDER BY t.id DESC""", (user_id,)).fetchall()
 
 
 @router.get("/trips/{trip_id}")
-def get_trip(trip_id: int, user_id: int = Depends(current_user), conn=Depends(get_conn)):
-    trip = conn.execute("SELECT id, spec FROM trips WHERE id = %s AND user_id = %s",
+def get_trip(trip_id: int, version: int | None = None, user_id: int = Depends(current_user),
+             conn=Depends(get_conn)):
+    trip = conn.execute("SELECT id, spec, pinned_place_ids FROM trips WHERE id = %s AND user_id = %s",
                         (trip_id, user_id)).fetchone()
     if not trip:
         raise HTTPException(404, "Không tìm thấy chuyến đi")
-    it = conn.execute("SELECT version, data FROM itineraries WHERE trip_id = %s ORDER BY version DESC LIMIT 1",
-                      (trip_id,)).fetchone()
-    return {"trip_id": trip["id"], "trip": trip["spec"],
-            "version": it["version"] if it else None,
-            "itinerary": it["data"]["itinerary"] if it else None,
-            "places": it["data"]["places"] if it else {}}
+    it = load_itinerary(conn, trip_id, version)
+    if version is not None and not it:
+        raise HTTPException(404, "Không tìm thấy phiên bản lịch trình")
+    versions = [r["version"] for r in conn.execute(
+        "SELECT version FROM itineraries WHERE trip_id = %s ORDER BY version", (trip_id,)).fetchall()]
+    dest = next(d for d in list_destinations(conn) if d["slug"] == trip["spec"]["destination"])
+    return {"trip_id": trip["id"], "trip": trip["spec"], "center": [dest["lon"], dest["lat"]],
+            "version": it[0] if it else None,
+            "itinerary": it[1].model_dump(mode="json") if it else None,
+            "places": it[2] if it else {}, "versions": versions, "pinned_place_ids": trip["pinned_place_ids"]}

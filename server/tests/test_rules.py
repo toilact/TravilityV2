@@ -234,3 +234,14 @@ def test_retention_none_without_intents():
 def test_old_itinerary_json_still_loads():
     itin = Itinerary.model_validate({"stay_place_id": None, "days": [], "total_cost": 0})
     assert (itin.intents, itin.retention) == ({}, None)
+
+
+def test_draft_missing_pinned_place_is_rejected():
+    p = Place(id=1, destination="da-lat", name="A", kind="cafe", lat=11.94, lon=108.44, price=0,
+              open_hours={}, outdoor=False, tags=[])
+    trip = Trip(destination="da-lat", days=1, budget=1_000_000, travel_mode="grab")
+    draft = Draft.model_validate({"summary": "", "days": [{"stops": [
+        {"place_id": 1, "start_time": "09:00", "duration_min": 60}]}]})
+    with pytest.raises(InvalidDraft, match="Thiếu Place đã ghim"):
+        build_itinerary(trip, draft, {1: p}, pinned={1, 7})
+    assert build_itinerary(trip, draft, {1: p}, pinned={1}).days[0].stops[0].place_id == 1

@@ -11,9 +11,9 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 
 | Nhóm chức năng | Xong | Tổng |
 |---|---|---|
-| 1. Nền tảng & tài khoản | 4 | 7 |
-| 2. Lập Trip & Itinerary (lõi) | 12 | 14 |
-| 3. Revision, Pinned, version | 1 | 6 |
+| 1. Nền tảng & tài khoản | 5 | 5 |
+| 2. Lập Trip & Itinerary (lõi) | 13 | 14 |
+| 3. Revision, Pinned, version | 5 | 6 |
 | 4. Revision giữ mục đích (§5.11) | 2 | 7 |
 | 5. Cá nhân hoá Trip | 1 | 3 |
 | 6. Stay, đường đi, chi phí | 6 | 9 |
@@ -29,7 +29,7 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 - [x] Đăng ký / đăng nhập email + mật khẩu (bcrypt, JWT 7 ngày)
 - [x] Mỗi User chỉ thấy Trip của mình (Trip người khác → 404)
 - [x] LLM đổi được provider: Gemini khi dev, OpenAI khi demo (ADR-0003)
-- [ ] Đăng xuất — #3 (Nhật)
+- [x] Đăng xuất (nút tạm trong panel chat; chuyển lên rail ở UI mới #16)
 - ~~Đăng nhập Google — #12~~ (cắt 2026-09-30)
 - ~~Quên mật khẩu qua email — #13~~ (cắt 2026-09-30)
 
@@ -46,15 +46,15 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 - [x] Mỗi Stop có lý do chọn
 - [x] Forecast Open-Meteo (ngày đi trong 16 ngày tới)
 - [x] Lưu Trip + mọi version Itinerary trong DB
-- 🟡 Mở lại Trip cũ — server có `GET /trips/{id}`, client chưa gọi (tải lại app là mất lịch trình) — #3, #17
+- [x] Mở lại Trip: mở app tự mở Trip gần nhất + danh sách "Chuyến đi của tôi" (#3 phần rail làm cùng #16)
 - [ ] Chặn AI xếp Place loại chỗ ở làm Stop (hiện tiền phòng có thể bị tính 2 lần) — #39 (Thành)
 
 ## 3. Revision, Pinned Stop, phiên bản (§5.4 — **không được cắt**)
 - [x] Chat gắn với Trip đang mở + nút "Chuyến mới" (bản tạm: mỗi tin nhắn **lập lại cả lịch trình** thành version mới)
-- [ ] Revision thật: chỉ đổi Stop liên quan đến yêu cầu — #22 (Thành)
-- [ ] Pinned Stop: ghim/bỏ ghim + từ chối Draft đụng Stop đã ghim — #25 (Thành)
-- [ ] Dãy version `v1 · v2 · v3` trên Timeline + "Quay lại bản này" — #24 (Thành)
-- [ ] Lịch sử chat theo Trip, mở lại thấy hội thoại — #17 (Thành)
+- [x] Revision thật: chỉ đổi Stop liên quan đến yêu cầu (followup: answer / edit_itinerary / confirm_replan) — #22
+- [x] Pinned Stop: nút 📌 trên Stop (`PATCH /trips/{id}/pins`, lưu trên Trip, không tạo version); lập lại thiếu Place ghim → AI làm lại — #25
+- [x] Dãy version `v1 · v2 · v3` trên Timeline, bản cũ chỉ xem + "Quay lại bản này" (`POST /trips/{id}/restore/{version}`) — #24
+- [x] Lịch sử chat theo Trip (bảng `messages`, `GET /trips/{id}/messages`) — #17
 - [ ] Tô sáng / animate Stop đã đổi sau Revision — (Nhật)
 
 ## 4. Revision giữ mục đích (§5.11, ý tưởng Local Explorer AI)
@@ -142,6 +142,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. #17, #3 → #25 → #24 — Revision đầy đủ (đường găng, không được cắt).
+1. ✅ Revision đầy đủ (#17, #25, #24) xong 2026-09-30. Tiếp: T4 UI mới (#2 → #16 → #4).
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10.
 3. Nhật: chuẩn bị component tách rời (#40, #8/#9, popup Place) để cắm vào layout mới ở T4.

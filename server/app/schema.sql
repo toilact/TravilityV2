@@ -63,3 +63,17 @@ CREATE TABLE IF NOT EXISTS proposals (
   applied_version integer,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Pinned Stop: thuộc Trip, không thuộc version; gán vào stop.pinned khi đọc (spec revision-day-du §2 D2)
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS pinned_place_ids integer[] NOT NULL DEFAULT '{}';
+
+-- Lịch sử chat theo Trip để mở lại thấy hội thoại (#17); không lưu thinking/tool_call/clarify/error
+CREATE TABLE IF NOT EXISTS messages (
+  id serial PRIMARY KEY,
+  trip_id integer NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  role text NOT NULL CHECK (role IN ('user', 'ai')),
+  text text NOT NULL,
+  version integer,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS messages_trip ON messages(trip_id, id);

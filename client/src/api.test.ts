@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
+  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlace, signed, toAnswers, tripLabel,
+  viewingOld, vnd,
   type AgentEvent, type Itinerary, type ProposalOption,
 } from './api'
 
@@ -92,5 +93,25 @@ describe('isFinal', () => {
     expect(isFinal({ type: 'error', message: 'x' })).toBe(true)
     expect(isFinal({ type: 'thinking', text: '…' })).toBe(false)
     expect(isFinal({ type: 'tool_call', name: 's', query: 'q', places: [] })).toBe(false)
+  })
+})
+
+describe('viewingOld', () => {
+  it('chỉ đúng khi đang xem bản khác bản mới nhất', () => {
+    expect(viewingOld(1, 3)).toBe(true)
+    expect(viewingOld(3, 3)).toBe(false)
+    expect(viewingOld(null, 3)).toBe(false)
+    expect(viewingOld(1, null)).toBe(false)
+  })
+})
+
+describe('tripLabel', () => {
+  it('tên Destination · số ngày · ngày tạo', () => {
+    expect(tripLabel({ id: 1, spec: { destination: 'da-lat', days: 2 }, created_at: '2026-09-30T12:00:00+07:00',
+      destination_name: 'Đà Lạt' })).toBe('Đà Lạt · 2 ngày · 30/09')
+  })
+  it('thiếu tên thì dùng slug', () => {
+    expect(tripLabel({ id: 1, spec: { destination: 'da-lat', days: 1 }, created_at: '2026-01-05T00:00:00Z',
+      destination_name: null }).startsWith('da-lat · 1 ngày')).toBe(true)
   })
 })

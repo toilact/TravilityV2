@@ -61,7 +61,7 @@ Dùng đúng thuật ngữ trong [CONTEXT.md](../CONTEXT.md): User, Traveler Pro
 |---|---|
 | Đăng ký / đăng nhập email + mật khẩu (bcrypt, JWT 7 ngày) | ✅ |
 | Mỗi User chỉ thấy Trip của mình | ✅ |
-| Đăng xuất | ⏳ |
+| Đăng xuất | ✅ |
 | Đăng nhập Google (loopback redirect cho app desktop) | ⏳ (cắt đầu tiên nếu trễ) |
 | Quên mật khẩu qua email | ⏳ (cắt đầu tiên nếu trễ) |
 
@@ -85,14 +85,14 @@ Tiêu chí chấp nhận: token hết hạn → về màn đăng nhập kèm th�
 | Thiếu phương tiện / giờ đến–về → hỏi lại một vòng bằng chip (event `clarify`, `POST /trips/{id}/plan`) | ✅ |
 | Luôn trả Itinerary kèm Conflict thay vì báo lỗi | ✅ |
 | Mỗi Stop có lý do chọn (reason) | ✅ |
-| Lưu Trip + Itinerary; mở lại Trip cũ | 🟡 server có API, client chưa dùng |
+| Lưu Trip + Itinerary; mở lại Trip cũ | ✅ |
 | Trả lời bằng giọng nói / nhập bằng giọng nói | ⏳ (mục 5.8) |
 
 Tiêu chí chấp nhận: 15 prompt golden set cho ≥ 90% Itinerary hợp lệ; không bao giờ xuất hiện Place không có trong database.
 
-### 5.4 Revision, Pinned Stop, phiên bản ⏳ (không được cắt)
+### 5.4 Revision, Pinned Stop, phiên bản ✅ (không được cắt)
 - **Chat gắn với Trip đang mở.** Khi đã có Itinerary, mọi tin nhắn là một Revision của Trip đó. Muốn chuyến khác thì bấm nút **"Chuyến mới"**. App không tự đoán ý người dùng.
-  🟡 Đã có (2026-09-29): khi Trip đã có lịch, AI tự phân loại tin nhắn — **câu hỏi** được trả lời bằng số liệu code tính (không tạo version); **yêu cầu sửa** thành thao tác trên lịch cũ (Stop không nhắc tới giữ nguyên, Stop đổi có viền); **đổi thông tin gốc** (số ngày, Budget…) hỏi xác nhận rồi lập lại, giữ Place cũ làm gợi ý. Còn thiếu: UI ghim (#25), dãy version + quay lại (#24).
+  🟡 Đã có (2026-09-29): khi Trip đã có lịch, AI tự phân loại tin nhắn — **câu hỏi** được trả lời bằng số liệu code tính (không tạo version); **yêu cầu sửa** thành thao tác trên lịch cũ (Stop không nhắc tới giữ nguyên, Stop đổi có viền); **đổi thông tin gốc** (số ngày, Budget…) hỏi xác nhận rồi lập lại, giữ Place cũ làm gợi ý. ✅ 2026-09-30: ghim (lưu trên Trip, `PATCH /trips/{id}/pins`), dãy version + "Quay lại bản này" (`POST /trips/{id}/restore/{version}`), lịch sử chat (`GET /trips/{id}/messages`). Còn thiếu: animate Stop đổi trên map (làm cùng UI mới).
 - Mỗi Trip có lịch sử chat riêng, được lưu lại (mở Trip cũ thấy lại hội thoại).
 - Mỗi Revision tạo **một version Itinerary mới, bất biến**. Chỉ Stop liên quan đến yêu cầu được đổi.
 - **Pinned Stop:** ghim / bỏ ghim từ popup Place hoặc icon trên Timeline. Ghim **không tạo version mới**; đây là trạng thái áp cho Revision kế tiếp. Code kiểm tra Draft và **từ chối Draft đổi hoặc xoá Stop đã ghim** (AI làm lại 1 lần, giống cơ chế Place lạ).
@@ -233,7 +233,7 @@ SERVER (docker compose)
 ```
 - Server tắt thì app không dùng được. Khi demo, cả hai chạy trên một laptop; cổng chỉ mở trên `127.0.0.1`.
 - **API đã thêm:** `POST /trips/{id}/plan` (SSE; áp câu trả lời của event `clarify` rồi lập lịch).
-- **API mới dự kiến:** `POST /trips/{id}/revisions` (SSE, trả version mới) · `POST /trips/{id}/restore/{version}` · `PATCH /trips/{id}/pins` · `GET/PUT /profile` · `GET /trips/{id}/messages`.
+- **API đã thêm (2026-09-30):** `GET /trips/{id}?version=N` · `PATCH /trips/{id}/pins` · `POST /trips/{id}/restore/{version}` · `GET /trips/{id}/messages`. Revision đi qua `POST /trips` với `trip_id` (followup), không cần endpoint riêng.
 - **Event SSE:** giữ 6 event hiện có (thêm `clarify` — event cuối của `POST /trips` khi thiếu thông tin). Event `itinerary` thêm `version` và danh sách Stop đã đổi. Thêm event mới thì phải sửa cả server lẫn kiểu `AgentEvent` trong `client/src/api.ts`.
 
 ## 9. Dữ liệu Place

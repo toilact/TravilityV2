@@ -65,8 +65,11 @@ def is_open(place: Place, weekday: str, start: str, duration_min: int) -> bool:
     return o <= s and s + duration_min <= c
 
 
-def _check_draft(trip: Trip, draft: Draft, places: dict[int, Place]) -> None:
+def _check_draft(trip: Trip, draft: Draft, places: dict[int, Place], pinned=frozenset()) -> None:
     ids = {s.place_id for d in draft.days for s in d.stops}
+    missing = sorted(set(pinned) - ids)
+    if missing:
+        raise InvalidDraft(f"Thiếu Place đã ghim: {missing} — phải giữ các Place này trong lịch")
     if draft.stay_place_id is not None:
         ids.add(draft.stay_place_id)
     unknown = sorted(i for i in ids if i not in places)
@@ -81,8 +84,8 @@ def _check_draft(trip: Trip, draft: Draft, places: dict[int, Place]) -> None:
 
 
 def build_itinerary(trip: Trip, draft: Draft, places: dict[int, Place],
-                    rain: list[int | None] | None = None, hub: Hub | None = None) -> Itinerary:
-    _check_draft(trip, draft, places)
+                    rain: list[int | None] | None = None, hub: Hub | None = None, pinned=frozenset()) -> Itinerary:
+    _check_draft(trip, draft, places, pinned)
     stay = places.get(draft.stay_place_id) if draft.stay_place_id is not None else None
     mode = trip.travel_mode or DEFAULT_TRAVEL_MODE
     pairs = math.ceil(trip.travelers / 2)  # 2 người/phòng, 2 người/xe

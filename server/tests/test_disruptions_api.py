@@ -38,10 +38,12 @@ def seed(conn, client, pinned=False):
                        (uid, Jsonb(TRIP.model_dump(mode="json")))).fetchone()["id"]
     places = get_places(conn, [cafe, museum])
     draft = Draft.model_validate({"summary": "", "days": [{"stops": [
-        {"place_id": cafe, "start_time": "09:00", "duration_min": 60, "pinned": pinned},
+        {"place_id": cafe, "start_time": "09:00", "duration_min": 60},
         {"place_id": museum, "start_time": "11:00", "duration_min": 60}]}]})
     ev = itinerary_event(build_itinerary(TRIP, draft, places), places)
     save_itinerary(conn, tid, ev["itinerary"], ev["places"])
+    if pinned:
+        conn.execute("UPDATE trips SET pinned_place_ids = %s WHERE id = %s", ([cafe], tid))
     return h, tid
 
 
@@ -154,3 +156,31 @@ def test_concurrent_apply_of_two_proposals_second_gets_409(client, conn, monkeyp
     [t.start() for t in ts]
     [t.join() for t in ts]
     assert sorted(results.values(), key=str) == sorted([2, 409], key=str)
+
+
+def test_apply_logs_message(client, conn):
+    h, tid = seed(conn, client)
+    pid = disrupt(client, h, tid).json()["proposal_id"]
+    client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
+    client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})  # idempotent: không ghi lần 2
+    rows = conn.execute("SELECT role, text, version FROM messages WHERE trip_id = %s", (tid,)).fetchall()
+    assert [(r["role"], r["version"]) for r in rows] == [("ai", 2)]
+    assert "bản 2" in rows[0]["text"]
+
+
+def test_apply_old_proposal_after_restore_is_409(client, conn):
+    h, tid = seed(conn, client)
+    pid = disrupt(client, h, tid).json()["proposal_id"]
+    assert client.post(f"/trips/{tid}/restore/1", headers=h).json()["version"] == 2
+    r = client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
+    assert r.status_code == 409
+
+
+def test_apply_after_pinning_the_replaced_stop_is_409(client, conn):
+    h, tid = seed(conn, client)
+    pid = disrupt(client, h, tid).json()["proposal_id"]  # Proposal thay Cafe A
+    cafe = conn.execute("SELECT id FROM places WHERE name = 'Cafe A'").fetchone()["id"]
+    assert client.patch(f"/trips/{tid}/pins", headers=h, json={"place_id": cafe, "pinned": True}).status_code == 200
+    r = client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
+    assert r.status_code == 409 and "ghim" in r.json()["detail"]
+    assert conn.execute("SELECT count(*) AS n FROM itineraries WHERE trip_id = %s", (tid,)).fetchone()["n"] == 1

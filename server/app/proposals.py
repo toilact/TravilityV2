@@ -7,10 +7,10 @@ from pydantic import BaseModel, Field
 from app.agent import itinerary_event
 from app.auth import current_user
 from app.db import get_conn
-from app.domain import Disruption, Itinerary, Trip
+from app.domain import Disruption, Trip
 from app.places import get_places, list_destinations, similar_places
 from app.replan import InvalidDisruption, NoFeasible, propose
-from app.trips import hub_for, save_itinerary
+from app.trips import hub_for, load_itinerary, log_message, save_itinerary
 
 router = APIRouter()
 STALE = "Lịch trình đã có bản mới hơn, hãy mở bản mới nhất rồi thử lại."
@@ -39,13 +39,12 @@ def _latest_version(conn, trip_id: int) -> int | None:
 def create_disruption(trip_id: int, body: DisruptionIn, user_id: int = Depends(current_user),
                       conn=Depends(get_conn)):
     trip = _trip(conn, trip_id, user_id)
-    row = conn.execute("SELECT data FROM itineraries WHERE trip_id = %s AND version = %s",
-                       (trip_id, body.version)).fetchone()
-    if not row:
+    loaded = load_itinerary(conn, trip_id, body.version)
+    if not loaded:
         raise HTTPException(404, "Không tìm thấy phiên bản lịch trình")
     if body.version != _latest_version(conn, trip_id):
         raise HTTPException(409, STALE)
-    itin = Itinerary.model_validate(row["data"]["itinerary"])
+    itin = loaded[1]
     ids = {s.place_id for d in itin.days for s in d.stops}
     if itin.stay_place_id is not None:
         ids.add(itin.stay_place_id)
@@ -96,12 +95,17 @@ def apply_proposal(trip_id: int, proposal_id: int, body: ApplyIn, user_id: int =
             if p["base_version"] != _latest_version(conn, trip_id):
                 raise HTTPException(409, STALE)
             opt = p["options"][body.option]
+            pins = set(conn.execute("SELECT pinned_place_ids FROM trips WHERE id = %s",
+                                    (trip_id,)).fetchone()["pinned_place_ids"])
+            if pins - {st["place_id"] for d in opt["itinerary"]["days"] for st in d["stops"]}:
+                raise HTTPException(409, "Stop này vừa được ghim — bỏ ghim rồi báo sự cố lại nếu vẫn muốn đổi.")
             try:
                 version = save_itinerary(conn, trip_id, opt["itinerary"], opt["places"])
             except UniqueViolation:  # lần lưu khác (phương án khác / chat) vừa chiếm số version này
                 raise HTTPException(409, STALE) from None
             conn.execute("UPDATE proposals SET chosen_index = %s, applied_version = %s WHERE id = %s",
                          (body.option, version, proposal_id))
+            log_message(conn, trip_id, "ai", f"Đã áp dụng phương án — lịch trình bản {version}.", version)
     opt = p["options"][body.option]
     return {"type": "itinerary", "itinerary": opt["itinerary"], "places": opt["places"],
             "trip_id": trip_id, "version": version}
