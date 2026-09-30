@@ -174,3 +174,13 @@ def test_apply_old_proposal_after_restore_is_409(client, conn):
     assert client.post(f"/trips/{tid}/restore/1", headers=h).json()["version"] == 2
     r = client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
     assert r.status_code == 409
+
+
+def test_apply_after_pinning_the_replaced_stop_is_409(client, conn):
+    h, tid = seed(conn, client)
+    pid = disrupt(client, h, tid).json()["proposal_id"]  # Proposal thay Cafe A
+    cafe = conn.execute("SELECT id FROM places WHERE name = 'Cafe A'").fetchone()["id"]
+    assert client.patch(f"/trips/{tid}/pins", headers=h, json={"place_id": cafe, "pinned": True}).status_code == 200
+    r = client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
+    assert r.status_code == 409 and "ghim" in r.json()["detail"]
+    assert conn.execute("SELECT count(*) AS n FROM itineraries WHERE trip_id = %s", (tid,)).fetchone()["n"] == 1

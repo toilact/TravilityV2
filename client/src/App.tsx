@@ -186,7 +186,7 @@ export default function App() {
       <Timeline itinerary={itinerary} places={places} budget={budget} busy={busy} changed={changed}
         onDisrupt={tripId != null && version != null ? disrupt : undefined}
         versions={versions} version={version} latest={latest} pins={pins}
-        onView={viewVersion} onRestore={restore} onPin={tripId != null && version != null ? pin : undefined}>
+        onView={viewVersion} onRestore={restore} onPin={tripId != null && version != null && !proposal ? pin : undefined}>
         {proposal && <ProposalPanel proposal={proposal} busy={busy} onApply={apply}
           onClose={() => { setProposal(null); setSearchPins([]) }} />}
       </Timeline>

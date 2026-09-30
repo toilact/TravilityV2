@@ -95,6 +95,10 @@ def apply_proposal(trip_id: int, proposal_id: int, body: ApplyIn, user_id: int =
             if p["base_version"] != _latest_version(conn, trip_id):
                 raise HTTPException(409, STALE)
             opt = p["options"][body.option]
+            pins = set(conn.execute("SELECT pinned_place_ids FROM trips WHERE id = %s",
+                                    (trip_id,)).fetchone()["pinned_place_ids"])
+            if pins - {st["place_id"] for d in opt["itinerary"]["days"] for st in d["stops"]}:
+                raise HTTPException(409, "Stop này vừa được ghim — bỏ ghim rồi báo sự cố lại nếu vẫn muốn đổi.")
             try:
                 version = save_itinerary(conn, trip_id, opt["itinerary"], opt["places"])
             except UniqueViolation:  # lần lưu khác (phương án khác / chat) vừa chiếm số version này
