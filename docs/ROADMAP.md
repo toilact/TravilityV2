@@ -29,7 +29,7 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 - [x] Đăng ký / đăng nhập email + mật khẩu (bcrypt, JWT 7 ngày)
 - [x] Mỗi User chỉ thấy Trip của mình (Trip người khác → 404)
 - [x] LLM đổi được provider: Gemini khi dev, OpenAI khi demo (ADR-0003)
-- [x] Đăng xuất (nút tạm trong panel chat; chuyển lên rail ở UI mới #16)
+- [x] Đăng xuất (nút ⎋ trên rail)
 - ~~Đăng nhập Google — #12~~ (cắt 2026-09-30)
 - ~~Quên mật khẩu qua email — #13~~ (cắt 2026-09-30)
 
@@ -46,7 +46,7 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 - [x] Mỗi Stop có lý do chọn
 - [x] Forecast Open-Meteo (ngày đi trong 16 ngày tới)
 - [x] Lưu Trip + mọi version Itinerary trong DB
-- [x] Mở lại Trip: mở app tự mở Trip gần nhất + danh sách "Chuyến đi của tôi" (#3 phần rail làm cùng #16)
+- [x] Mở lại Trip: mở app tự mở Trip gần nhất + danh sách "Chuyến đi của tôi" trên rail (#3)
 - [ ] Chặn AI xếp Place loại chỗ ở làm Stop (hiện tiền phòng có thể bị tính 2 lần) — #39 (Thành)
 
 ## 3. Revision, Pinned Stop, phiên bản (§5.4 — **không được cắt**)
@@ -92,14 +92,12 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - [ ] Bảng chi phí theo nhóm trên Timeline (ăn / vé / Stay / di chuyển) — #40 (Nhật)
 
 ## 7. UI/UX mới (§7)
-- [x] Bố cục 3 cột: chat · map 3D Goong · Timeline; pin tìm kiếm, tuyến theo màu ngày
-- [ ] Mockup UI mới: map toàn màn hình, panel nổi, tông ấm, logo — #2 (Nhật)
-- [ ] Làm lại layout theo mockup — #16 (Nhật)
-- [ ] Rail + danh sách Trip + mở lại Trip gần nhất — #3 (Nhật)
-- [ ] Map ↔ Timeline hai chiều, popup Place (ảnh, giá, giờ mở, nút Ghim) — #4 (Nhật)
-- [ ] Nút "Xem hành trình" (camera bay qua Stop, dừng được) — #4 (Nhật)
-- [ ] Bỏ qua được đoạn camera bay, kéo map trong lúc bay
-- [ ] Empty state có ảnh + câu gợi ý bấm được
+- [x] Mockup UI mới: map toàn màn hình, panel nổi, tông rừng thông / dã quỳ, logo — #2 ([mockup](https://claude.ai/artifact/FqsEi2pjdHPdM2qoYD83ih))
+- [x] Layout theo mockup: map toàn màn hình, Chat + Timeline là panel nổi thu gọn được, cửa sổ hẹp chỉ mở một panel — #16
+- [x] Rail (＋ Chuyến mới, 🗂 danh sách Trip dạng popover, ⎋ Đăng xuất) + mở lại Trip gần nhất — #3
+- [x] Map ↔ Timeline hai chiều, popup Place (ảnh giữ chỗ theo loại, giá, giờ mở, trong nhà/ngoài trời, nút Ghim) — #4
+- [x] Nút "Xem hành trình" (camera bay qua Stop, bấm Dừng hoặc kéo map là dừng); có lịch trình chỉ thu vừa tuyến, không tự bay — #4
+- [x] Empty state: câu chào + 3 gợi ý bấm được (ảnh thật chờ mốc dữ liệu)
 
 ## 8. Dữ liệu Place
 - [x] Import JSON → DB + embedding (`scripts/import_places`)
@@ -132,8 +130,8 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 | Tuần | Nội dung | Trạng thái |
 |---|---|---|
 | T1 | Nền tảng + AI Trip Planner lõi; cá nhân hoá lát 1; Revision giữ mục đích lát A+B | ✅ |
-| T2–T3 (→15/10) | Revision đầy đủ: mở lại Trip + lịch sử chat (#17, #3) → Pinned (#25) → version + quay lại (#24) | ⏳ |
-| T4 | UI mới: mockup bằng AI → layout map toàn màn hình + rail (#2, #16, #4); kiểm mốc dữ liệu 15/10; #39 | ⏳ |
+| T2–T3 (→15/10) | Revision đầy đủ: mở lại Trip + lịch sử chat (#17, #3) → Pinned (#25) → version + quay lại (#24) | ✅ |
+| T4 | UI mới: mockup bằng AI → layout map toàn màn hình + rail (#2, #16, #4) ✅; kiểm mốc dữ liệu 15/10; #39 | ⏳ |
 | T5–T6 | Lát C mưa + trễ (#32); Goong Matrix (#7); nợ kỹ thuật (#37) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
 | T7–T8 | Tag chỗ ở + đổi Stay (#26); PDF (#11); recap (#28); ranker (#35) · Nhật giọng nói (#8, #9), bảng chi phí (#40) | ⏳ |
 | T9 | Chuyển OpenAI, golden set (#6), lát F (#36) | ⏳ |
@@ -142,6 +140,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24) xong 2026-09-30. Tiếp: T4 UI mới (#2 → #16 → #4).
-2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10.
-3. Nhật: chuẩn bị component tách rời (#40, #8/#9, popup Place) để cắm vào layout mới ở T4.
+1. ✅ Revision đầy đủ (#17, #25, #24) và ✅ UI mới (#2, #16, #4) xong 2026-09-30. Tiếp: #39 (chặn chỗ ở làm Stop) rồi lát C mưa + trễ (#32).
+2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
+3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.

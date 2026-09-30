@@ -1,4 +1,4 @@
-# Travility — Hiện trạng app (cập nhật 2026-09-29, sau cá nhân hoá lát 1)
+# Travility — Hiện trạng app (cập nhật 2026-09-30, sau lát UI mới)
 
 > Ảnh chụp hiện trạng code, dùng làm phụ lục cho [PRD.md](PRD.md). Quyết định và lộ trình nằm trong PRD; tài liệu này chỉ mô tả code **đang chạy thế nào**. Bản đầu viết 2026-09-25 sau Plan 1; bản này thêm lát 1 của [spec cá nhân hoá Trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md) (PR #30).
 
@@ -27,7 +27,7 @@ File JSON là nguồn dữ liệu duy nhất; import upsert theo `ext_id`. `dest
 ### 2.1 Mở app + đăng nhập
 - `desktop/main.py` mở cửa sổ pywebview với `client/dist/index.html` qua HTTP server nội bộ (cổng 42001), hoặc `localhost:5173` khi dev.
 - Chưa có token → màn Login → `POST /auth/register` hoặc `/auth/login` → bcrypt + JWT 7 ngày → client lưu `localStorage`.
-- Có token → màn chính 3 cột: **Chat | Map 3D | Timeline**. Server trả 401 → quay về Login.
+- Có token → màn chính: bản đồ toàn màn hình + rail + panel Chat và Timeline nổi (§3.2). Server trả 401 → quay về Login.
 - Lưu ý: WebKit giữ cache bản build cũ ở `~/Library/Caches/python3` → build client xong mà app trắng thì xoá thư mục đó.
 
 ### 2.2 Luồng chính: tin nhắn → Itinerary (`server/app/trips.py`)
@@ -124,40 +124,43 @@ POST /trips/{id}/proposals/{pid}/apply {option}
 
 ## 3. UI/UX hiện tại
 
-Chưa có bước thiết kế UI/UX riêng (mockup: #2). UI dựng theo luồng dữ liệu và yêu cầu "map hiện live các bước là khoảnh khắc wow".
+Theo [mockup #2](https://claude.ai/artifact/FqsEi2pjdHPdM2qoYD83ih) và [spec UI mới](superpowers/specs/2026-09-30-ui-moi-design.md) (2026-09-30). Tông rừng thông `pine` + dã quỳ `marigold` (`@theme` trong `client/src/index.css`), font Be Vietnam Pro.
 
 ### 3.1 Luồng màn hình
 ```
 Mở app ──► có token? ──không──► [Login] (một form, nút đổi Đăng nhập/Đăng ký)
               │ có                   │ thành công → lưu token
               ▼                      ▼
-        [Màn chính 3 cột] ◄──────────┘
+        [Màn chính] ◄────────────────┘   tự mở Trip gần nhất; chưa có → câu chào + 3 gợi ý bấm được
 ```
-Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặt.
 
 ### 3.2 Bố cục màn chính
 ```
-┌──────────────┬─────────────────────────────┬────────────────┐
-│ CHAT (22rem) │      MAP 3D (co giãn)        │ TIMELINE(24rem)│
-│ tiêu đề +    │ pin vàng nhấp nháy (search)  │ Tổng chi phí   │
-│ [＋Chuyến mới]│ pin số theo màu ngày         │ Budget, Chỗ ở  │
-│ bong bóng:   │ nhãn "Chỗ ở"                 │ ⚠ Conflict đỏ  │
-│ user/ai/     │ tuyến đường màu theo ngày    │ Ngày n · mưa % │
-│ tool/error   │ (Leg tới/từ Hub chưa vẽ)     │ Stop: 🍜 bữa,  │
-│ thẻ hỏi lại  │                              │ giờ, giá, lý do│
-│ [ô nhập][Gửi]│                              │                │
-└──────────────┴─────────────────────────────┴────────────────┘
+┌──┬──────────────────────────────────────────────────────────────┐
+│🟡│ ╭ Chat (340px) ╮        BẢN ĐỒ TOÀN MÀN          ╭ Lịch trình ╮│
+│＋│ │ Destination ·│   pin số màu ngày, "Chỗ ở",      │ v1·v2·v3   ││
+│🗂│ │ ngân sách    │   tuyến Goong, popup Place        │ chi phí,   ││
+│  │ │ bong bóng…   │                                   │ Conflict,  ││
+│  │ │ [ô nhập][Gửi]│      [▶ Xem hành trình]           │ thẻ Stop   ││
+│⎋ │ ╰──────────────╯                                   ╰────────────╯│
+└──┴──────────────────────────────────────────────────────────────┘
 ```
+- **Rail** (`Rail.tsx`): logo, ＋ Chuyến mới, 🗂 popover "Chuyến đi của tôi" (Esc/bấm ra ngoài để đóng), ⎋ Đăng xuất.
+- **Panel nổi** (`FloatingPanel.tsx`): thu gọn thành nút; Chat thu gọn có badge số tin mới. Cửa sổ < 1100px chỉ mở một panel (`layout.ts` `setPanel`). Timeline chỉ hiện khi có Itinerary và tự mở khi có lịch mới.
+- **Stop đang chọn** (`selected` ở `App`, kiểu `Selected` trong `place.ts`): bấm thẻ Stop → bản đồ bay tới + `PlacePopup`; bấm pin → Timeline cuộn tới thẻ, viền vàng. Nút "Báo đóng cửa" / "Đổi chỗ khác" chỉ hiện trên Stop đang chọn. Itinerary đổi → bỏ chọn.
+- **PlacePopup**: ảnh (`photo_url`, chưa có thì ô màu + icon theo kind — `PlaceThumb`), loại, giá, trong nhà/ngoài trời, giờ mở hôm đó (`openToday`), mô tả, nút Ghim. Itinerary lưu trước 2026-09-30 không có `open_hours`/`description` → popup ẩn hai dòng đó.
+- **Camera**: có Itinerary → `fitBounds` mọi Stop + Stay (chừa chỗ panel, `pitch: 0`), không tự bay. "Xem hành trình" bay qua từng Stop (`tourStops`), bấm Dừng / kéo map / lịch đổi → dừng ngay. `prefers-reduced-motion` → không animate.
+- **Tuyến**: gọi Goong Direction song song, timeout 5s mỗi Leg, lỗi → đường thẳng (trước đây gọi tuần tự không timeout, một request treo là tuyến không bao giờ hiện).
 
 ### 3.3 Trải nghiệm theo event SSE
 | Thời điểm | Chat | Map | Timeline |
 |---|---|---|---|
-| Chưa gõ | Câu gợi ý mẫu | Đà Lạt, nghiêng 45° | "Lịch trình sẽ hiện ở đây." |
+| Chưa gõ | Câu chào + 3 gợi ý bấm được | Đà Lạt, nghiêng 45° | Ẩn |
 | Vừa gửi | Bong bóng user, "AI đang lên lịch trình…", khoá nút Gửi | Xoá pin cũ | — |
 | `trip` | Nhớ `tripId` → tin sau thuộc Trip này; hiện nút "Chuyến mới" | Bay tới thành phố | Xoá lịch trình cũ |
 | `clarify` | Thẻ hỏi lại: chip phương tiện, chip phương tiện đến + ô giờ tới/về, "Lên lịch" / "Bỏ qua, cứ lên lịch". Gõ tay vào ô chat cũng được | — | — |
 | `tool_call` | "Đang tìm: … (n kết quả)" | Pin vàng nhấp nháy dồn dần | — |
-| `itinerary` | Tóm tắt của AI; thẻ hỏi lại biến mất | Vẽ tuyến Goong theo màu ngày, pin số; camera bay qua từng Stop | Tổng tiền, Conflict, từng ngày/Stop, nhãn Bữa sáng/trưa/tối |
+| `itinerary` | Tóm tắt của AI; thẻ hỏi lại biến mất | Vẽ tuyến Goong theo màu ngày, pin số; thu vừa toàn tuyến (không tự bay) | Panel tự mở: tổng tiền, Conflict, từng ngày/Stop, nhãn Bữa sáng/trưa/tối |
 | `answer` | Câu trả lời của AI (số liệu do code tính) | — | Không đổi |
 | `confirm_replan` | Câu hỏi xác nhận + thẻ "Lập lại" / "Giữ nguyên" | — | Không đổi cho tới khi bấm "Lập lại" |
 | `itinerary` sau khi sửa | Câu tóm tắt thay đổi | Vẽ lại tuyến | Stop vừa đổi có viền vàng |
@@ -175,8 +178,8 @@ Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặ
 
 ### 3.5 Điểm yếu UX cần xử lý
 1. ~~Chưa xem/khôi phục được version cũ~~ — xong 2026-09-30 (dãy v1·v2·v3, bản cũ chỉ xem, "Quay lại bản này").
-2. **Timeline và map không liên kết:** bấm Stop không bay tới Place, bấm pin không hiện gì; chưa có popup hay ảnh Place (#4).
-3. **Không bỏ qua được đoạn camera bay;** người dùng không kéo map được trong lúc đó.
-4. ~~Không có lịch sử chuyến đi / đăng xuất~~ — xong 2026-09-30 (mở Trip gần nhất, "Chuyến đi của tôi", Đăng xuất; rail làm ở #16).
-5. **Bố cục 3 cột cố định,** cửa sổ tối thiểu 1100 px; chưa có logo, empty state trơn (#2, #16).
+2. ~~Timeline và map không liên kết~~ — xong 2026-09-30 (#4). Ảnh Place thật chờ dữ liệu có `photo_url` (#19, #41).
+3. ~~Không bỏ qua được đoạn camera bay~~ — xong 2026-09-30: không tự bay nữa, "Xem hành trình" dừng được.
+4. ~~Không có lịch sử chuyến đi / đăng xuất~~ — xong 2026-09-30 (rail).
+5. ~~Bố cục 3 cột cố định~~ — xong 2026-09-30 (#2, #16).
 6. **Không thấy tiền đi đâu:** Timeline chỉ có tổng và từng Stop, chưa có bảng chi phí theo nhóm.
