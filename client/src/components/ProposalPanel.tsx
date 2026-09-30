@@ -1,10 +1,14 @@
+import { useEffect, useRef } from 'react'
 import { noFeasibleText, signed, vnd, type Proposal } from '../api'
 
 export default function ProposalPanel({ proposal, busy, onApply, onClose }: {
   proposal: Proposal; busy: boolean; onApply: (option: number) => void; onClose: () => void
 }) {
+  const ref = useRef<HTMLElement>(null)
+  // Panel nằm đầu Timeline; nút sự cố thường ở giữa/cuối danh sách → cuộn tới để người dùng thấy kết quả
+  useEffect(() => { ref.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [proposal])
   return (
-    <section aria-live="polite" className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm">
+    <section ref={ref} aria-live="polite" className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="font-semibold">Phương án thay thế</h2>
         <button type="button" onClick={onClose} className="text-xs text-stone-500 hover:underline">Huỷ</button>
