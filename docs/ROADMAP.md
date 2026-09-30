@@ -14,7 +14,7 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 | 1. Nền tảng & tài khoản | 5 | 5 |
 | 2. Lập Trip & Itinerary (lõi) | 13 | 14 |
 | 3. Revision, Pinned, version | 5 | 6 |
-| 4. Revision giữ mục đích (§5.11) | 2 | 7 |
+| 4. Revision giữ mục đích (§5.11) | 3 | 7 |
 | 5. Cá nhân hoá Trip | 1 | 3 |
 | 6. Stay, đường đi, chi phí | 6 | 9 |
 | 7. UI/UX mới | 1 | 8 |
@@ -61,7 +61,7 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 Spec: [revision-giu-muc-dich](superpowers/specs/2026-09-29-revision-giu-muc-dich-design.md) · [ADR-0006](adr/0006-thay-the-theo-muc-dich-bang-code.md)
 - [x] **Lát A** — #31 — Intent + mức giữ mục đích R: chip ✓/✗ và "Giữ mục đích N%" trên Timeline
 - [x] **Lát B** — #31 — "Báo đóng cửa" / "Đổi chỗ khác" trên Stop → tối đa 3 Proposal (code, không LLM) + giải thích + Δ chi phí / Δ phút / R → "Áp dụng" tạo version mới; bảng `proposals` kiêm log feedback
-- [ ] **Lát C** — #32 — Disruption "Giả sử mưa" (một ngày) + "Tôi trễ 15/30/60′" (Thành, T5–T6) · *không được cắt*
+- [x] **Lát C** — #32 — "☂ Giả sử mưa" (một ngày) + "Tôi trễ 15/30/60′": thay Stop ngoài trời / đóng cửa, bỏ Stop không thay được hoặc quá giờ, Stop ghim giữ nguyên ([§13 spec](superpowers/specs/2026-09-29-revision-giu-muc-dich-design.md))
 - [ ] **Lát D** — #33 — Bản đồ theo thời điểm: TimeSlider, Place tô màu mở + đến kịp / xa / đóng, thêm Place vào lúc HH:MM (Tùng, T6) · *cắt thứ 5*
 - [ ] **Lát E1** — #34 — ~40 kịch bản cố định, bảng so sánh B0 / B1 / B2 (`uv run python -m eval.run`) (Quân, T5–T6)
 - [ ] **Lát E2** — #35 — Rubric, gán nhãn 0–3, XGBRanker, chỉ bật khi thắng hàm điểm tay (NDCG@5) (Quân, T7–T8) · *cắt thứ 3*
@@ -140,6 +140,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24) và ✅ UI mới (#2, #16, #4) xong 2026-09-30. Tiếp: #39 (chặn chỗ ở làm Stop) rồi lát C mưa + trễ (#32).
+1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; #39 chờ merge PR #45. Tiếp: Goong Matrix (#7), nợ lát A+B (#37).
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
 3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.
