@@ -1,8 +1,55 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  authRequest,
   clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlace, signed, toAnswers, vnd,
   type AgentEvent, type Itinerary, type ProposalOption,
 } from './api'
+
+// --- CÁC TEST CASE CHO HÀM authRequest (Mới bổ sung) ---
+describe('authRequest', () => {
+
+  // Trường hợp 1: Login thành công và trả về token hợp lệ
+  it('trả token khi đăng nhập thành công', async () => {
+    // Stub hàm fetch toàn cục để giả lập phản hồi thành công từ server
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'jwt-test' }),
+    }))
+
+    // Kiểm tra xem authRequest có trả về đúng token như mong đợi không
+    await expect(
+      authRequest('/auth/login', 'an@example.com', 'matkhau123'),
+    ).resolves.toBe('jwt-test')
+  })
+
+  // Trường hợp 2: Sai mật khẩu / thông tin, hiển thị lỗi lấy trực tiếp từ 'detail' của server
+  it('hiển thị lỗi từ detail khi server trả về thông tin chi tiết lỗi', async () => {
+    // Giả lập fetch trả về trạng thái lỗi (ok: false) và có chứa trường detail
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ detail: 'Sai mật khẩu hoặc tài khoản không tồn tại' }),
+    }))
+
+    // Kiểm tra xem hàm có ném ra lỗi với thông điệp từ detail không
+    await expect(
+      authRequest('/auth/login', 'an@example.com', 'sai-mat-khau'),
+    ).rejects.toThrow('Sai mật khẩu hoặc tài khoản không tồn tại')
+  })
+
+  // Trường hợp 3: Response lỗi từ server nhưng không có trường 'detail' -> dùng thông báo mặc định
+  it('dùng thông báo mặc định khi response lỗi không có trường detail', async () => {
+    // Giả lập fetch trả về lỗi nhưng object json trả về rỗng
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({}),
+    }))
+
+    // Kiểm tra xem hàm vẫn ném lỗi chính xác (dùng thông báo dự phòng)
+    await expect(
+      authRequest('/auth/login', 'an@example.com', 'sai'),
+    ).rejects.toThrow()
+  })
+})
 
 describe('toAnswers', () => {
   it('bỏ ô giờ chưa nhập và chip chưa chọn để server không trả 422', () => {
