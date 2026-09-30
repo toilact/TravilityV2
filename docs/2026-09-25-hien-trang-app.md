@@ -77,6 +77,17 @@ POST /trips {message, trip_id} → có Itinerary → followup (không parse_trip
                                   → lập lại, lịch cũ + Place cũ đưa vào làm gợi ý
 ```
 
+Ghim, version, lịch sử chat (`server/app/versions.py`, JSON thường, #25 #24 #17):
+```
+PATCH /trips/{id}/pins {place_id, pinned} → trips.pinned_place_ids (không tạo version; Place không có trong bản mới nhất → 422)
+  mọi lần đọc lịch (load_itinerary) gán stop.pinned = place_id ∈ pinned_place_ids → followup/disruption tự chặn Stop ghim
+  lập lại (replan): Draft thiếu Place ghim → InvalidDraft, AI làm lại 1 lần
+GET /trips/{id}?version=N → bản bất kỳ + versions[] + pinned_place_ids + center
+POST /trips/{id}/restore/{version} → to_draft(bản cũ) → build_itinerary theo Trip hiện tại → version mới
+  khác số ngày → 422; Place ghim không có trong bản cũ → tự bỏ ghim, báo trong chat
+GET /trips/{id}/messages → bảng messages: tin user + phản hồi cuối của AI (answer, tóm tắt, confirm_replan, áp dụng, quay lại)
+```
+
 Sự cố trên một Stop (`server/app/proposals.py`, JSON thường, không SSE):
 ```
 POST /trips/{id}/disruptions {version, kind: closed|disliked, day_index, stop_index}
@@ -102,9 +113,6 @@ POST /trips/{id}/proposals/{pid}/apply {option}
 ### 2.4 Chỗ hổng và điểm nối cho tính năng tiếp theo
 | Hiện trạng | Hệ quả / hướng mở rộng |
 |---|---|
-| Có nhiều version nhưng UI chỉ hiện bản mới nhất | "Quay lại bản này" (#24) |
-| Trường `pinned` có trong Stop nhưng chưa dùng | Pinned Stop (#25) |
-| `user_messages` lưu trong `trips`; client chưa gọi `GET /trips` | Tải lại app mất lịch trình; lịch sử chat + danh sách Trip (#17, #3) |
 | AI có thể xếp Place `cho-o` làm Stop → tiền phòng tính 2 lần | Từ chối trong `_check_draft` |
 | Kem/ăn vặt (kind `an-uong`) vẫn tính là bữa chính | Tag `an-vat` không tính là bữa |
 | Vượt Budget chỉ báo một dòng, không có bảng chi phí | Gửi breakdown cho AI + hiện trên Timeline |
@@ -166,9 +174,9 @@ Chỉ có 2 màn: không menu, không danh sách chuyến đi, không cài đặ
 - **Tối giản:** tông stone + emerald, Tailwind; `aria-live` cho chat, `aria-pressed` cho chip, `role="alert"` cho lỗi đăng nhập.
 
 ### 3.5 Điểm yếu UX cần xử lý
-1. **Chưa xem/khôi phục được version cũ;** mỗi tin nhắn lập lại cả lịch trình (#22, #24).
+1. ~~Chưa xem/khôi phục được version cũ~~ — xong 2026-09-30 (dãy v1·v2·v3, bản cũ chỉ xem, "Quay lại bản này").
 2. **Timeline và map không liên kết:** bấm Stop không bay tới Place, bấm pin không hiện gì; chưa có popup hay ảnh Place (#4).
 3. **Không bỏ qua được đoạn camera bay;** người dùng không kéo map được trong lúc đó.
-4. **Không có lịch sử chuyến đi / đăng xuất:** tải lại app là mất (#3, #17).
+4. ~~Không có lịch sử chuyến đi / đăng xuất~~ — xong 2026-09-30 (mở Trip gần nhất, "Chuyến đi của tôi", Đăng xuất; rail làm ở #16).
 5. **Bố cục 3 cột cố định,** cửa sổ tối thiểu 1100 px; chưa có logo, empty state trơn (#2, #16).
 6. **Không thấy tiền đi đâu:** Timeline chỉ có tổng và từng Stop, chưa có bảng chi phí theo nhóm.
