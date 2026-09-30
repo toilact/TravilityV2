@@ -109,6 +109,34 @@ def _affected(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disrupti
         hits = [Hit(d.day_index, si, places[s.place_id], "replace") for si, s in outdoor if not s.pinned]
         codes = ["PINNED_CONFLICT"] if any(s.pinned for _, s in outdoor) else []
         return Affected(base, hits, codes, set())
+    if d.kind == "late":
+        limit = _minutes(PACE_HOURS[trip.pace][1])
+        if d.day_index == len(itin.days) - 1 and (lim := last_day_limit(trip)) is not None:
+            limit = min(limit, lim)
+        stops, wk = base.days[d.day_index].stops, _weekdays(day)
+        hits, codes, shifted = [], ["LATE_SHIFT"], set()
+        for si in range(d.stop_index, len(stops)):
+            s = stops[si]
+            p = places[s.place_id]
+            old_end = _minutes(s.start_time) + s.duration_min
+            start = _minutes(s.start_time) + d.minutes
+            if start >= 24 * 60:
+                if s.pinned:
+                    raise InvalidDisruption(f"Trễ {d.minutes} phút đẩy {p.name} (đã ghim) qua nửa đêm — bỏ ghim rồi thử lại")
+                hits.append(Hit(d.day_index, si, p, "drop"))
+                continue
+            s.start_time = f"{start // 60:02d}:{start % 60:02d}"
+            shifted.add((d.day_index, si))
+            over = start + s.duration_min > limit >= old_end  # chỉ tính khi chính việc dời giờ làm vượt mốc
+            shut = not any(is_open(p, w, s.start_time, s.duration_min) for w in wk)
+            if s.pinned:
+                if (over or shut) and "PINNED_CONFLICT" not in codes:
+                    codes.append("PINNED_CONFLICT")
+            elif over:
+                hits.append(Hit(d.day_index, si, p, "drop"))
+            elif shut:
+                hits.append(Hit(d.day_index, si, p, "replace"))
+        return Affected(base, hits, codes, shifted - {(h.day, h.stop) for h in hits})
     stop = day.stops[d.stop_index]
     if stop.pinned:
         raise InvalidDisruption("Stop đã ghim — bỏ ghim để đổi")
