@@ -1,15 +1,18 @@
-"""Engine thay thế theo mục đích (spec 2026-09-29-revision-giu-muc-dich §4, ADR-0006). Code thuần, không gọi LLM."""
+"""Engine thay thế theo mục đích (spec 2026-09-29-revision-giu-muc-dich §4, §13, ADR-0006). Code thuần, không gọi LLM."""
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Literal, NamedTuple
 
 from pydantic import BaseModel
 
-from app.domain import (DEFAULT_TRAVEL_MODE, INTENT_LABELS, WEEKDAYS, Day, Disruption, Draft, DraftDay, DraftStop, Hub,
-                        Itinerary, Place, Trip, intent_weights, place_intents)
-from app.rules import _minutes, build_itinerary, haversine_km, is_open, make_leg, vnd
+from app.domain import (DEFAULT_TRAVEL_MODE, INTENT_LABELS, PACE_HOURS, WEEKDAYS, Day, Disruption, Draft, DraftDay,
+                        DraftStop, Hub, Itinerary, Place, Trip, intent_weights, place_intents)
+from app.rules import _minutes, build_itinerary, haversine_km, is_open, last_day_limit, make_leg, vnd
 
 N_OPTIONS = 3
 HARD = {"closed", "before_arrival", "after_departure", "over_budget"}
-KIND_TEXT = {"closed": "đóng cửa", "disliked": "bạn muốn đổi"}
+KIND_TEXT = {"closed": "đóng cửa", "disliked": "bạn muốn đổi", "rain": "mưa", "late": "trễ giờ"}
+DROP_TEXT = {"rain": "không có chỗ trong nhà phù hợp", "late": "không kịp giờ"}
 
 
 class InvalidDisruption(Exception):
@@ -23,10 +26,26 @@ class NoFeasible(BaseModel):
 class ProposalOption(BaseModel):
     itinerary: Itinerary
     added: list[Place]
-    changed: list[tuple[int, int]]  # (day_index, stop_index)
+    changed: list[tuple[int, int]]  # (day_index, stop_index) trong itinerary mới
     metrics: dict
     reason_codes: list[str]
     explanation: str
+    title: str
+
+
+@dataclass(frozen=True, eq=False)  # khoá dict theo danh tính: Place (pydantic) không hash được
+class Hit:
+    day: int
+    stop: int
+    lost: Place
+    mode: Literal["replace", "drop"]
+
+
+class Affected(NamedTuple):
+    base: Draft                    # Draft để dựng phương án (late: đã dời giờ)
+    hits: list[Hit]
+    codes: list[str]               # mã chung của mọi phương án, vd LATE_SHIFT, PINNED_CONFLICT
+    shifted: set[tuple[int, int]]  # Stop bị dời giờ (late) → tô sáng như Stop đã đổi
 
 
 CandidatesFn = Callable[[Place, set[int]], list[Place]]
@@ -75,27 +94,42 @@ def _neighbors(itin: Itinerary, places: dict[int, Place], di: int, si: int, hub:
     return prev, nxt
 
 
-def _reject(trip: Trip, day: Day, si: int, lost: Place, cand: Place, prev: Point, nxt: Point) -> str | None:
-    stop = day.stops[si]
-    weekdays = [WEEKDAYS[day.date.weekday()]] if day.date else WEEKDAYS
+def _weekdays(day: Day) -> list[str]:
+    return [WEEKDAYS[day.date.weekday()]] if day.date else WEEKDAYS
+
+
+def _affected(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption) -> Affected:
+    if d.day_index >= len(itin.days) or (d.stop_index is not None
+                                         and d.stop_index >= len(itin.days[d.day_index].stops)):
+        raise InvalidDisruption("Không tìm thấy Stop này trong lịch trình")
+    base = to_draft(itin)
+    stop = itin.days[d.day_index].stops[d.stop_index]
+    if stop.pinned:
+        raise InvalidDisruption("Stop đã ghim — bỏ ghim để đổi")
+    return Affected(base, [Hit(d.day_index, d.stop_index, places[stop.place_id], "replace")], [], set())
+
+
+def _reject(trip: Trip, stops: list[DraftStop], weekdays: list[str], si: int, lost: Place, cand: Place,
+            prev: Point, nxt: Point, indoor: bool = False) -> str | None:
+    stop = stops[si]
     if not any(is_open(cand, w, stop.start_time, stop.duration_min) for w in weekdays):
         return "NO_OPEN_CANDIDATE"
     start = _minutes(stop.start_time)
     # Không bắt lịch chặt hơn bản cũ: chỉ loại khi chặng mới vừa vượt khoảng trống vừa dài hơn chặng cũ.
     if si > 0:
-        p = day.stops[si - 1]
+        p = stops[si - 1]
         need = _leg_min(prev, cand, trip)
         if need > start - (_minutes(p.start_time) + p.duration_min) and need > _leg_min(prev, lost, trip):
             return "NOT_REACHABLE_IN_TIME"
-    if si + 1 < len(day.stops):
+    if si + 1 < len(stops):
         need = _leg_min(cand, nxt, trip)
-        if need > _minutes(day.stops[si + 1].start_time) - start - stop.duration_min and need > _leg_min(lost, nxt, trip):
+        if need > _minutes(stops[si + 1].start_time) - start - stop.duration_min and need > _leg_min(lost, nxt, trip):
             return "NOT_REACHABLE_IN_TIME"
     return None
 
 
-def _hard(itin: Itinerary) -> set[tuple[str, int | None]]:
-    return {(c.kind, c.day_index) for c in itin.conflicts if c.kind in HARD}
+def _hard(itin: Itinerary) -> set[tuple[str, int | None, int | None]]:
+    return {(c.kind, c.day_index, c.place_id) for c in itin.conflicts if c.kind in HARD}
 
 
 def _stop_intents(trip: Trip, p: Place) -> set[str]:
@@ -113,16 +147,21 @@ def _travel_min(itin: Itinerary) -> int:
 
 
 def _day_end(day: Day) -> str:
+    if not day.stops:
+        return "—"
     m = max(_minutes(s.start_time) + s.duration_min for s in day.stops)
     return f"{m // 60:02d}:{m % 60:02d}"
 
 
-def _explain(kept: set, lost: set, travel_delta: int, cost_delta: int, day_end: str, di: int) -> str:
-    parts = []
+def _explain(prefix: str | None, kept: set, lost: set, dropped: str | None, travel_delta: int, cost_delta: int,
+             day_end: str, di: int) -> str:
+    parts = [prefix] if prefix else []
     if kept:
         parts.append(f"giữ mục đích {_labels(kept)}")
     if lost:
         parts.append(f"chuyến không còn {_labels(lost)}")
+    if dropped:
+        parts.append(dropped)
     parts.append("thời gian di chuyển như cũ" if travel_delta == 0
                  else f"{'thêm' if travel_delta > 0 else 'bớt'} {abs(travel_delta)} phút di chuyển")
     parts.append("chi phí như cũ" if cost_delta == 0
@@ -132,18 +171,72 @@ def _explain(kept: set, lost: set, travel_delta: int, cost_delta: int, day_end: 
     return s[0].upper() + s[1:] + "."
 
 
-def _option(trip: Trip, old: Itinerary, new: Itinerary, at: tuple[int, int], lost: Place, cand: Place,
-            prev: Point, nxt: Point) -> ProposalOption:
-    li = _stop_intents(trip, lost)
-    kept = li & place_intents(cand.tags)
+def _title(pick: dict[Hit, Place], dropped: list[Place]) -> str:
+    parts = [c.name for c in pick.values()]
+    if dropped:
+        parts.append("bỏ " + ", ".join(p.name for p in dropped))
+    s = " · ".join(parts) or "chỉ dời giờ"
+    return s[0].upper() + s[1:]
+
+
+def _pick(ranked: dict[Hit, list[Place]], k: int, may_drop: bool) -> dict[Hit, Place] | None:
+    """Phương án k: ứng viên thứ k còn trống của từng Stop, không trùng Place. Thiếu → bỏ Stop hoặc None."""
+    taken, pick = set(), {}
+    for h, cs in ranked.items():
+        free = [c for c in cs if c.id not in taken]
+        if len(free) > k:
+            pick[h] = free[k]
+            taken.add(free[k].id)
+        elif not may_drop:
+            return None
+    return pick
+
+
+def _variant(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption, aff: Affected,
+             pick: dict[Hit, Place], hub: Hub | None) -> ProposalOption | str:
+    draft = aff.base.model_copy(deep=True)
+    for h, c in pick.items():
+        s = draft.days[h.day].stops[h.stop]
+        kept = _stop_intents(trip, h.lost) & place_intents(c.tags)
+        draft.days[h.day].stops[h.stop] = DraftStop(
+            place_id=c.id, start_time=s.start_time, duration_min=s.duration_min,
+            reason=f"Thay {h.lost.name} ({KIND_TEXT[d.kind]})" + (f" — cùng mục đích {_labels(kept)}" if kept else ""))
+    drop = {(h.day, h.stop) for h in aff.hits if h not in pick}
+    touched = {(h.day, h.stop) for h in pick} | aff.shifted
+    changed = []
+    for di, day in enumerate(draft.days):
+        kept_stops = []
+        for si, s in enumerate(day.stops):
+            if (di, si) in drop:
+                continue
+            if (di, si) in touched:
+                changed.append((di, len(kept_stops)))
+            kept_stops.append(s)
+        day.stops = kept_stops
+
+    new = build_itinerary(trip, draft, places | {c.id: c for c in pick.values()},
+                          [x.rain_chance for x in itin.days], hub)
+    pinned = {s.place_id for x in itin.days for s in x.stops if s.pinned}
+    # Conflict trên Stop ghim không do engine gây ra (engine không đổi Stop ghim) → không loại phương án
+    extra = {x for x in _hard(new) - _hard(itin) if x[2] is None or x[2] not in pinned}
+    if extra:
+        return "OVER_BUDGET" if any(k == "over_budget" for k, _, _ in extra) else "NEW_CONFLICT"
+
+    dropped = [h.lost for h in aff.hits if h not in pick]
+    li = set().union(*(_stop_intents(trip, h.lost) for h in pick))
+    kept = set().union(*(_stop_intents(trip, h.lost) & place_intents(c.tags) for h, c in pick.items()))
     # "không còn" chỉ khi cả chuyến mất Intent đó, không phải khi Stop khác vẫn đáp ứng
-    lost_trip = {k for k, hit in old.intents.items() if hit and not new.intents.get(k)}
-    cost_delta = new.total_cost - old.total_cost
-    travel_delta = _travel_min(new) - _travel_min(old)
-    di = at[0]
-    codes = []
+    lost_trip = {k for k, hit in itin.intents.items() if hit and not new.intents.get(k)}
+    cost_delta = new.total_cost - itin.total_cost
+    travel_delta = _travel_min(new) - _travel_min(itin)
+    di = d.day_index
+    codes = list(aff.codes)
     if li:
         codes.append("INTENT_MATCH" if kept == li else "INTENT_PARTIAL" if kept else "INTENT_LOST")
+    if pick and d.kind == "rain":
+        codes.append("INDOOR_FOR_RAIN")
+    if dropped:
+        codes.append("STOP_DROPPED")
     if travel_delta > 5:
         codes.append("FARTHER")
     elif travel_delta < -5:
@@ -153,50 +246,61 @@ def _option(trip: Trip, old: Itinerary, new: Itinerary, at: tuple[int, int], los
     elif cost_delta < 0:
         codes.append("CHEAPER")
     day_end = _day_end(new.days[di])
+    prefix = None
+    if d.kind == "late":
+        prefix = f"dời {d.minutes} phút từ {places[itin.days[di].stops[d.stop_index].place_id].name}"
+    drop_text = f"bỏ {', '.join(p.name for p in dropped)} ({DROP_TEXT[d.kind]})" if dropped else None
     metrics = {"cost_delta": cost_delta, "travel_min_delta": travel_delta,
-               "day_end_before": _day_end(old.days[di]), "day_end_after": day_end,
-               "retention_before": old.retention, "retention_after": new.retention,
+               "day_end_before": _day_end(itin.days[di]), "day_end_after": day_end,
+               "retention_before": itin.retention, "retention_after": new.retention,
                "intents_kept": sorted(kept), "intents_lost": sorted(lost_trip),
-               "features": features(trip, lost, cand, prev, nxt)}
-    return ProposalOption(itinerary=new, added=[cand], changed=[at], metrics=metrics, reason_codes=codes,
-                          explanation=_explain(kept, lost_trip, travel_delta, cost_delta, day_end, di))
+               "features": [features(trip, h.lost, c, *_neighbors(itin, places, h.day, h.stop, hub))
+                            for h, c in pick.items()]}
+    return ProposalOption(itinerary=new, added=list(pick.values()), changed=changed, metrics=metrics,
+                          reason_codes=codes, title=_title(pick, dropped),
+                          explanation=_explain(prefix, kept, lost_trip, drop_text, travel_delta, cost_delta, day_end, di))
 
 
 def propose(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption, candidates_fn: CandidatesFn,
             hub: Hub | None = None, score_fn=score) -> list[ProposalOption] | NoFeasible:
-    if d.day_index >= len(itin.days) or d.stop_index >= len(itin.days[d.day_index].stops):
-        raise InvalidDisruption("Không tìm thấy Stop này trong lịch trình")
-    day = itin.days[d.day_index]
-    stop = day.stops[d.stop_index]
-    if stop.pinned:
-        raise InvalidDisruption("Stop đã ghim — bỏ ghim để đổi")
-    lost = places[stop.place_id]
+    aff = _affected(trip, itin, places, d)
     used = {s.place_id for x in itin.days for s in x.stops}
     if itin.stay_place_id is not None:
         used.add(itin.stay_place_id)
-    prev, nxt = _neighbors(itin, places, d.day_index, d.stop_index, hub)
 
-    rejected, ok = [], []
-    for c in candidates_fn(lost, used):
-        why = _reject(trip, day, d.stop_index, lost, c, prev, nxt)
-        (rejected.append(why) if why else ok.append(c))
-    ok.sort(key=lambda c: score_fn(features(trip, lost, c, prev, nxt)), reverse=True)
-
-    rain = [x.rain_chance for x in itin.days]
-    old_hard = _hard(itin)
-    options: list[ProposalOption] = []
-    for c in ok:
-        if len(options) == N_OPTIONS:
-            break
-        draft = to_draft(itin)
-        kept = _stop_intents(trip, lost) & place_intents(c.tags)
-        draft.days[d.day_index].stops[d.stop_index] = DraftStop(
-            place_id=c.id, start_time=stop.start_time, duration_min=stop.duration_min,
-            reason=f"Thay {lost.name} ({KIND_TEXT[d.kind]})" + (f" — cùng mục đích {_labels(kept)}" if kept else ""))
-        new = build_itinerary(trip, draft, places | {c.id: c}, rain, hub)
-        extra = _hard(new) - old_hard
-        if extra:
-            rejected.append("OVER_BUDGET" if ("over_budget", None) in extra else "NEW_CONFLICT")
+    rejected, ranked = [], {}
+    for h in aff.hits:
+        if h.mode != "replace":
             continue
-        options.append(_option(trip, itin, new, (d.day_index, d.stop_index), lost, c, prev, nxt))
+        prev, nxt = _neighbors(itin, places, h.day, h.stop, hub)
+        ok = []
+        for c in candidates_fn(h.lost, used):
+            why = _reject(trip, aff.base.days[h.day].stops, _weekdays(itin.days[h.day]), h.stop, h.lost, c,
+                          prev, nxt, indoor=d.kind == "rain")
+            (rejected.append(why) if why else ok.append(c))
+        ok.sort(key=lambda c: score_fn(features(trip, h.lost, c, prev, nxt)), reverse=True)
+        ranked[h] = ok
+
+    may_drop = d.kind in ("rain", "late")
+    variants = []
+    for k in range(max([1, *map(len, ranked.values())])):  # ít nhất 1 lượt: rain/late không ứng viên → bỏ Stop
+        pick = _pick(ranked, k, may_drop)
+        if pick is None:
+            break
+        variants.append(pick)
+    n_pick = N_OPTIONS - 1 if d.kind == "late" and aff.hits else N_OPTIONS
+    if d.kind == "late":
+        variants.append({})  # "Bỏ các Stop hỏng" — hoặc "Chỉ dời giờ" khi không có Stop hỏng
+
+    options, seen = [], set()
+    for i, pick in enumerate(variants):
+        last = d.kind == "late" and i == len(variants) - 1
+        if len(options) >= n_pick and not last:
+            continue
+        sig = frozenset((h.day, h.stop, c.id) for h, c in pick.items())
+        if sig in seen:
+            continue
+        seen.add(sig)
+        got = _variant(trip, itin, places, d, aff, pick, hub)
+        (rejected.append(got) if isinstance(got, str) else options.append(got))
     return options or NoFeasible(reason_codes=sorted(set(rejected)) or ["NO_CANDIDATE"])

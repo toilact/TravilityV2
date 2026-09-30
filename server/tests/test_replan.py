@@ -124,3 +124,9 @@ def test_only_trip_intents_are_mentioned():
     opts = propose(TRIP, itin, places, closed(), cands(P(10, tags=["cafe-chill"])))
     assert opts[0].reason_codes[0] == "INTENT_MATCH"
     assert "Vui chơi" not in opts[0].explanation
+
+
+def test_option_title_is_new_place_name():
+    places, itin = setup([(LOST, "09:00")])
+    opts = propose(TRIP, itin, places, closed(), cands(P(10)))
+    assert opts[0].title == "P10"

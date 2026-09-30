@@ -69,7 +69,8 @@ def create_disruption(trip_id: int, body: DisruptionIn, user_id: int = Depends(c
     for o in result:
         ev = itinerary_event(o.itinerary, places | {p.id: p for p in o.added})
         options.append({"itinerary": ev["itinerary"], "places": ev["places"], "changed": o.changed,
-                        "metrics": o.metrics, "reason_codes": o.reason_codes, "explanation": o.explanation})
+                        "metrics": o.metrics, "reason_codes": o.reason_codes, "explanation": o.explanation,
+                        "title": o.title, "added": [p.id for p in o.added]})
     pid = conn.execute(
         "INSERT INTO proposals(trip_id, base_version, disruption, options) VALUES (%s, %s, %s, %s) RETURNING id",
         (trip_id, body.version, disruption, Jsonb(options))).fetchone()["id"]

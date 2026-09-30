@@ -184,3 +184,10 @@ def test_apply_after_pinning_the_replaced_stop_is_409(client, conn):
     r = client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
     assert r.status_code == 409 and "ghim" in r.json()["detail"]
     assert conn.execute("SELECT count(*) AS n FROM itineraries WHERE trip_id = %s", (tid,)).fetchone()["n"] == 1
+
+
+def test_options_carry_title_and_added(client, conn):
+    h, tid = seed(conn, client)
+    o = disrupt(client, h, tid).json()["options"][0]
+    assert o["title"] == "Cafe B"
+    assert [o["places"][str(i)]["name"] for i in o["added"]] == ["Cafe B"]
