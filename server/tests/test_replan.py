@@ -9,9 +9,9 @@ TRIP = Trip(destination="da-lat", days=1, budget=5_000_000, travel_mode="grab",
             preferred_tags=["cafe-chill", "lich-su"])
 
 
-def P(id, kind="cafe", tags=(), price=0, lat=11.94, hours=None):
+def P(id, kind="cafe", tags=(), price=0, lat=11.94, hours=None, outdoor=False):
     return Place(id=id, destination="da-lat", name=f"P{id}", kind=kind, lat=lat, lon=108.44, price=price,
-                 open_hours=WEEK if hours is None else hours, outdoor=False, tags=list(tags))
+                 open_hours=WEEK if hours is None else hours, outdoor=outdoor, tags=list(tags))
 
 
 def setup(stops, trip=TRIP, pinned=()):
@@ -124,3 +124,142 @@ def test_only_trip_intents_are_mentioned():
     opts = propose(TRIP, itin, places, closed(), cands(P(10, tags=["cafe-chill"])))
     assert opts[0].reason_codes[0] == "INTENT_MATCH"
     assert "Vui chơi" not in opts[0].explanation
+
+
+def test_option_title_is_new_place_name():
+    places, itin = setup([(LOST, "09:00")])
+    opts = propose(TRIP, itin, places, closed(), cands(P(10)))
+    assert opts[0].title == "P10"
+
+
+RAIN = Disruption(kind="rain", day_index=0)
+PARK, LAKE = P(1, kind="tham-quan", outdoor=True), P(3, kind="tham-quan", outdoor=True)
+CAFE = P(2)
+
+
+def test_rain_replaces_every_outdoor_stop_with_indoor():
+    places, itin = setup([(PARK, "09:00"), (CAFE, "11:00"), (LAKE, "14:00")])
+    a, b = P(10, kind="tham-quan"), P(11, kind="tham-quan")
+    opts = propose(TRIP, itin, places, RAIN, cands(P(12, kind="tham-quan", outdoor=True), a, b))
+    for o in opts:
+        assert all(not (places | {p.id: p for p in o.added})[s.place_id].outdoor
+                   for s in o.itinerary.days[0].stops)
+    assert [s.place_id for s in opts[0].itinerary.days[0].stops] == [10, 2, 11]
+    assert opts[0].changed == [(0, 0), (0, 2)]
+    assert "INDOOR_FOR_RAIN" in opts[0].reason_codes
+    assert "(mưa)" in opts[0].itinerary.days[0].stops[0].reason
+    assert opts[0].itinerary.days[0].rain_chance is None  # C1: không ghi giả định mưa
+    # phương án 2: Công viên → P11, Hồ lấy ứng viên còn trống P10 thay vì bị bỏ (fix sau review)
+    assert [s.place_id for s in opts[1].itinerary.days[0].stops] == [11, 2, 10]
+    assert "STOP_DROPPED" not in opts[1].reason_codes
+    assert opts[1].title == "P11 · P10"
+
+
+def test_rain_keeps_pinned_outdoor_stop():
+    places, itin = setup([(PARK, "09:00"), (LAKE, "14:00")], pinned={1})
+    opts = propose(TRIP, itin, places, RAIN, cands(P(10, kind="tham-quan")))
+    assert opts[0].itinerary.days[0].stops[0].place_id == 1
+    assert opts[0].itinerary.days[0].stops[1].place_id == 10
+    assert opts[0].reason_codes[0] == "PINNED_CONFLICT"
+
+
+def test_rain_nothing_outdoor():
+    places, itin = setup([(CAFE, "09:00")])
+    assert propose(TRIP, itin, places, RAIN, cands(P(10))) == NoFeasible(reason_codes=["NOTHING_OUTDOOR"])
+
+
+def test_rain_without_indoor_candidate_drops_stop_even_if_day_empties():
+    places, itin = setup([(PARK, "09:00")])
+    opts = propose(TRIP, itin, places, RAIN, cands(P(12, kind="tham-quan", outdoor=True)))
+    assert len(opts) == 1
+    assert opts[0].itinerary.days[0].stops == []
+    assert opts[0].title == "Bỏ P1"
+    assert opts[0].explanation.startswith("Bỏ P1 (không có chỗ trong nhà phù hợp)")  # phần đầu câu được viết hoa
+    assert opts[0].metrics["day_end_after"] == "—"
+
+
+def late(stop=0, minutes=30):
+    return Disruption(kind="late", day_index=0, stop_index=stop, minutes=minutes)
+
+
+def test_late_only_shifts_when_nothing_breaks():
+    places, itin = setup([(LOST, "09:00"), (MUSEUM, "11:00")])
+    opts = propose(TRIP, itin, places, late(), cands(P(10)))
+    assert len(opts) == 1
+    assert [s.start_time for s in opts[0].itinerary.days[0].stops] == ["09:30", "11:30"]
+    assert opts[0].reason_codes == ["LATE_SHIFT"]
+    assert opts[0].title == "Chỉ dời giờ"
+    assert opts[0].changed == [(0, 0), (0, 1)]
+    assert opts[0].explanation.startswith("Dời 30 phút từ P1")
+
+
+def test_late_leaves_earlier_stops_alone():
+    places, itin = setup([(LOST, "09:00"), (MUSEUM, "11:00")])
+    opts = propose(TRIP, itin, places, late(stop=1), cands())
+    assert [s.start_time for s in opts[0].itinerary.days[0].stops] == ["09:00", "11:30"]
+
+
+def test_late_replaces_stop_closed_at_new_time_or_drops_it():
+    morning = P(2, kind="tham-quan", hours={d: ["08:00", "12:00"] for d in WEEKDAYS})
+    places, itin = setup([(LOST, "09:00"), (morning, "11:00")])
+    opts = propose(TRIP, itin, places, late(stop=1, minutes=60), cands(P(10, kind="tham-quan")))
+    assert [o.title for o in opts] == ["P10", "Bỏ P2"]
+    assert opts[0].itinerary.days[0].stops[1].start_time == "12:00"
+    assert opts[0].reason_codes[:1] == ["LATE_SHIFT"]
+    assert "STOP_DROPPED" in opts[1].reason_codes
+    assert "bỏ P2 (không kịp giờ)" in opts[1].explanation
+
+
+def test_late_drops_stop_pushed_past_pace_end_in_every_option():
+    places, itin = setup([(LOST, "09:00"), (MUSEUM, "19:30")])  # Pace "vua" kết thúc 21:00
+    opts = propose(TRIP, itin, places, late(stop=0, minutes=60), cands(P(10, kind="tham-quan")))
+    assert len(opts) == 1
+    assert [s.place_id for s in opts[0].itinerary.days[0].stops] == [1]
+
+
+def test_late_keeps_stop_that_was_already_past_pace_end():
+    all_day = P(2, kind="tham-quan", tags=["lich-su"], hours={})  # mở cả ngày: chỉ kiểm luật quá giờ
+    places, itin = setup([(LOST, "09:00"), (all_day, "21:00")])  # đã quá 21:00 từ trước
+    opts = propose(TRIP, itin, places, late(stop=0, minutes=30), cands())
+    assert [s.place_id for s in opts[0].itinerary.days[0].stops] == [1, 2]
+
+
+def test_late_pinned_stop_is_shifted_not_replaced_even_if_closed():
+    morning = P(2, kind="tham-quan", hours={d: ["08:00", "12:00"] for d in WEEKDAYS})
+    places, itin = setup([(LOST, "09:00"), (morning, "11:00")], pinned={2})
+    opts = propose(TRIP, itin, places, late(stop=0, minutes=60), cands(P(10, kind="tham-quan")))
+    assert len(opts) == 1
+    assert opts[0].itinerary.days[0].stops[1].place_id == 2
+    assert opts[0].itinerary.days[0].stops[1].start_time == "12:00"
+    assert "PINNED_CONFLICT" in opts[0].reason_codes
+
+
+def test_late_past_midnight():
+    places, itin = setup([(LOST, "20:00")])
+    opts = propose(TRIP, itin, places, late(minutes=240), cands())
+    assert opts[0].itinerary.days[0].stops == []  # Stop chưa ghim → bỏ
+    places, itin = setup([(LOST, "21:00")], pinned={1})
+    with pytest.raises(InvalidDisruption, match="nửa đêm"):
+        propose(TRIP, itin, places, late(minutes=240), cands())
+
+
+def test_rain_keeps_replacing_stop_that_has_only_one_candidate():
+    # review: phương án 2–3 không được bỏ Stop khi Stop đó vẫn còn chỗ thay
+    places, itin = setup([(PARK, "09:00"), (LAKE, "14:00")])
+    a = [P(i, kind="tham-quan") for i in (10, 11, 12)]
+    b0 = P(20, kind="tham-quan")
+    opts = propose(TRIP, itin, places, RAIN, lambda lost, used: a if lost.id == 1 else [b0])
+    assert len(opts) == 3
+    assert all("STOP_DROPPED" not in o.reason_codes for o in opts)
+    assert all(o.itinerary.days[0].stops[1].place_id == 20 for o in opts)
+
+
+def test_late_explains_new_missing_meal_and_pinned_conflict():
+    dinner = P(2, kind="an-uong")
+    places, itin = setup([(LOST, "09:00"), (dinner, "19:30")])
+    opts = propose(TRIP, itin, places, late(stop=1, minutes=60), cands())
+    assert "chưa có bữa tối" in opts[0].explanation
+    morning = P(2, kind="tham-quan", hours={d: ["08:00", "12:00"] for d in WEEKDAYS})
+    places, itin = setup([(LOST, "09:00"), (morning, "11:00")], pinned={2})
+    opts = propose(TRIP, itin, places, late(stop=0, minutes=60), cands())
+    assert "P2 không mở cửa lúc 12:00" in opts[0].explanation

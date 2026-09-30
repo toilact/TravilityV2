@@ -1,6 +1,6 @@
 # Revision giữ mục đích — Design
 
-> 2026-09-29 · Trạng thái: chờ review · Liên quan: PRD §5.4, §5.7, §6, §12, §13; ADR-0001, ADR-0006.
+> 2026-09-29 · Cập nhật 2026-09-30: §13 quyết định lát C · Trạng thái: chờ review · Liên quan: PRD §5.4, §5.7, §6, §12, §13; ADR-0001, ADR-0006.
 > Thuật ngữ theo [CONTEXT.md](../../../CONTEXT.md); thuật ngữ mới ở mục 3.
 > Nguồn ý tưởng: `thamkhao/PRD_Local_Explorer_AI.docx` (PRD 3.0) và `thamkhao/Local_Explorer_AI_Lo_Trinh_Trien_Khai_Chuc_Nang.docx`.
 
@@ -232,3 +232,16 @@ Revision bằng chat (#22), Pinned Stop (#25) và version (#24) vẫn làm ở T
 ## 12. Ngoài phạm vi
 
 Tầng Experience/Slot/sức chứa, Provider Portal, đặt chỗ/giữ chỗ, sự kiện từ bên ngoài (outbox/worker), OR-Tools tối ưu lại cả ngày, LLM viết câu giải thích, UI chỉnh trọng số Intent, nhãn dữ liệu thật/mô phỏng trên từng Place.
+
+## 13. Lát C — quyết định (chốt 2026-09-30)
+
+Phần này bổ sung và **thay thế** §4.1, §4.5 và §6 ở những điểm liên quan tới `rain` và `late`.
+
+| # | Chủ đề | Quyết định |
+|---|---|---|
+| C1 | Mưa | Stop bị ảnh hưởng là mọi Stop `outdoor` chưa ghim của ngày `day_index`. Ứng viên chỉ lấy Place có `outdoor = False`. Không ghi `rain_chance`: forecast thật giữ nguyên, version mới chỉ khác ở các Stop được thay. `reason` của Stop mới là "Thay {tên cũ} (mưa)". Stop ngoài trời đã ghim giữ nguyên, phương án gắn thêm mã `PINNED_CONFLICT`. Ngày không có Stop nào bị ảnh hưởng → `NoFeasible(["NOTHING_OUTDOOR"])`. |
+| C2 | Nhiều Stop | Phương án k (k = 0..2) lấy ứng viên tốt thứ k của từng Stop bị ảnh hưởng, không trùng Place giữa các Stop. Stop không còn ứng viên hợp lệ thì **bị bỏ** khỏi phương án (không loại cả phương án), gắn mã `STOP_DROPPED`, câu giải thích ghi "bỏ {tên} (không có chỗ thay phù hợp)". Phương án không thay được Stop nào (chỉ có bỏ) chỉ giữ lại một bản. |
+| C3 | Trễ | `minutes` ∈ 5–240. Cộng `minutes` vào `start_time` của Stop `stop_index` và mọi Stop sau nó trong ngày; Stop đã ghim cũng bị dời. Sau khi dời, Stop **hỏng** là Stop thuộc một trong hai trường hợp: (a) **đóng cửa** ở giờ mới → thay bằng ứng viên cùng kind đang mở vào giờ mới; (b) **quá giờ**: kết thúc sau `PACE_HOURS[pace][1]`, hoặc sau `last_day_limit(trip)` nếu là ngày cuối → bỏ ở mọi phương án, vì thay Place khác không làm lịch kết thúc sớm hơn. Không có Stop hỏng → đúng 1 phương án "Chỉ dời giờ" (`LATE_SHIFT`). Có Stop hỏng → tối đa 2 phương án thay (`LATE_SHIFT` + mã của thay thế) và 1 phương án "Bỏ các Stop hỏng" (`LATE_SHIFT`, `STOP_DROPPED`). Stop đã ghim bị hỏng thì không thay cũng không bỏ, gắn mã `PINNED_CONFLICT`. |
+| C4 | UI | Stop đang chọn trên Timeline có thêm hàng **Tôi trễ 15′ · 30′ · 60′**, kể cả khi Stop đã ghim. Header ngày có nút **☂ Giả sử mưa**, chỉ hiện khi ngày có Stop ngoài trời chưa ghim. Kết quả hiện trong ProposalPanel hiện có, tối đa 3 thẻ. |
+| C5 | Engine | Tổng quát hoá `propose` thành ba bước: (1) `_affected` trả về Draft gốc (với `late` là Draft đã dời giờ) và danh sách Stop hỏng `(day, stop, lost, mode)`, trong đó `mode ∈ replace/drop/keep`; (2) xếp hạng ứng viên riêng cho từng Stop `replace` bằng `_reject` + `score`; (3) dựng phương án k rồi gọi `build_itinerary`, loại phương án có Conflict cứng mới như §4.5. `closed`/`disliked` là trường hợp chỉ có một Stop `replace`. Mọi test của lát B phải giữ nguyên và xanh. |
+| C6 | API | `Disruption.kind` thêm `rain`, `late`. `stop_index` bắt buộc với `closed`/`disliked`/`late` và phải bỏ trống với `rain`. `minutes` bắt buộc với `late`. Sai → 422. Không thêm endpoint mới. |

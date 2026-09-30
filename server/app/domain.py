@@ -163,7 +163,16 @@ class Itinerary(BaseModel):
 
 
 class Disruption(BaseModel):
-    """Sự cố người dùng báo trên một Stop. Lát C thêm rain/late, lát D thêm insert."""
-    kind: Literal["closed", "disliked"]
+    """Sự cố người dùng báo: closed/disliked/late trên một Stop, rain trên cả ngày (spec §13 C6). Lát D thêm insert."""
+    kind: Literal["closed", "disliked", "rain", "late"]
     day_index: int = Field(ge=0)
-    stop_index: int = Field(ge=0)
+    stop_index: int | None = Field(default=None, ge=0)
+    minutes: int | None = Field(default=None, ge=5, le=240)
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if (self.stop_index is None) != (self.kind == "rain"):
+            raise ValueError("stop_index bắt buộc với sự cố trên Stop, bỏ trống với mưa")
+        if (self.minutes is None) != (self.kind != "late"):
+            raise ValueError("minutes chỉ dùng và bắt buộc với late")
+        return self

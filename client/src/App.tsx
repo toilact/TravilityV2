@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  applyProposal, clarifyAfter, confirmAfter, getMessages, getTrip, listTrips, optionPlace, reportDisruption,
+  applyProposal, clarifyAfter, confirmAfter, getMessages, getTrip, listTrips, optionPlaces, reportDisruption,
   restoreVersion, setPin, streamPlan, streamReplan, streamTrip, tripLabel, viewingOld, vnd,
-  type AgentEvent, type Answers, type Clarify, type ConfirmReplan, type DisruptionKind, type Itinerary,
+  type AgentEvent, type Answers, type Clarify, type ConfirmReplan, type DisruptionReq, type Itinerary,
   type ItineraryEvent, type Place, type Proposal, type TripSummary,
 } from './api'
 import ChatPanel, { type ChatItem } from './components/ChatPanel'
@@ -169,11 +169,11 @@ export default function App() {
 
   const logout = () => { saveToken(null); setToken(null); newTrip(); setTrips([]) }
 
-  const disrupt = async (kind: DisruptionKind, day: number, stop: number) => {
-    const p = await call(() => reportDisruption(token!, tripId!, version!, kind, day, stop))
+  const disrupt = async (d: DisruptionReq) => {
+    const p = await call(() => reportDisruption(token!, tripId!, version!, d))
     if (!p) return
     setProposal(p)
-    setSearchPins((p.options ?? []).map(optionPlace).filter((x): x is Place => x !== undefined))
+    setSearchPins((p.options ?? []).flatMap(optionPlaces))
   }
 
   const apply = async (option: number) => {

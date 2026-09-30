@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.domain import Draft, Trip, TripAnswers
+from app.domain import Disruption, Draft, Trip, TripAnswers
 
 
 def test_trip_defaults():
@@ -49,3 +49,18 @@ def test_draft_rejects_bad_time():
         Draft.model_validate(
             {"days": [{"stops": [{"place_id": 1, "start_time": "25:00", "duration_min": 60}]}]}
         )
+
+
+def test_disruption_shape_per_kind():
+    assert Disruption(kind="rain", day_index=1).stop_index is None
+    assert Disruption(kind="late", day_index=0, stop_index=2, minutes=30).minutes == 30
+    assert Disruption(kind="closed", day_index=0, stop_index=0).minutes is None
+    bad = [dict(kind="rain", day_index=0, stop_index=0),        # mưa là sự cố của cả ngày
+           dict(kind="closed", day_index=0),                    # thiếu stop_index
+           dict(kind="late", day_index=0, stop_index=0),         # thiếu minutes
+           dict(kind="late", day_index=0, stop_index=0, minutes=300),
+           dict(kind="late", day_index=0, stop_index=0, minutes=4),
+           dict(kind="closed", day_index=0, stop_index=0, minutes=30)]
+    for b in bad:
+        with pytest.raises(ValidationError):
+            Disruption(**b)

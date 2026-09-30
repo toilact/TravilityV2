@@ -8,7 +8,7 @@ Thuật ngữ in đậm theo [CONTEXT.md](../CONTEXT.md). Spec gốc: [travility
 
 - **Plan 1** (nền tảng + AI Trip Planner lõi): ✅ merge `main` (PR #1).
 - **Cá nhân hoá lát 1** (PR #30, chờ review): hỏi lại một vòng, giờ đến/về, **Hub**, xe riêng, chat gắn với **Trip** (bản tạm), đủ 3 bữa/ngày, thêm 27 Place.
-- **Lát A+B Revision giữ mục đích** (nhánh `feat/revision-giu-muc-dich`): chip Intent + R trên Timeline; "Báo đóng cửa" / "Đổi chỗ khác" trên Stop → tối đa 3 Proposal do code tạo (không LLM) → "Áp dụng" tạo version mới. Chưa có: mưa, trễ giờ, bản đồ theo thời điểm, đánh giá B0/B1/B2, ranker (lát C–F).
+- **Lát A+B Revision giữ mục đích** (nhánh `feat/revision-giu-muc-dich`): chip Intent + R trên Timeline; "Báo đóng cửa" / "Đổi chỗ khác" trên Stop → tối đa 3 Proposal do code tạo (không LLM) → "Áp dụng" tạo version mới. **Lát C** (2026-09-30): "☂ Giả sử mưa" trên header ngày (thay Stop ngoài trời chưa ghim bằng Place trong nhà, thiếu thì bỏ; không ghi `rain_chance`) và "Tôi trễ 15/30/60′" trên Stop (dời giờ, thay Stop đóng cửa ở giờ mới, bỏ Stop vượt giờ Pace / giờ về; Stop ghim chỉ bị dời). Chưa có: bản đồ theo thời điểm, đánh giá B0/B1/B2, ranker (lát D–F).
 - Test: server 128 pass (pytest + Postgres Docker), client 13 pass, build OK.
 - **Đã chạy E2E** với Gemini thật qua app desktop (`gemini-3.5-flash-lite`, embedding `gemini-embedding-001`).
 - **Dữ liệu:** 37 Place Đà Lạt, trong đó 27 gắn `"unverified": true` chờ kiểm chứng (PRD cần ≥ 150/Destination × 3).
@@ -90,7 +90,7 @@ GET /trips/{id}/messages → bảng messages: tin user + phản hồi cuối c�
 
 Sự cố trên một Stop (`server/app/proposals.py`, JSON thường, không SSE):
 ```
-POST /trips/{id}/disruptions {version, kind: closed|disliked, day_index, stop_index}
+POST /trips/{id}/disruptions {version, kind: closed|disliked|rain|late, day_index, stop_index?, minutes?}  # rain: không stop_index; late: minutes 5–240
   → version khác bản mới nhất: 409 · Stop đã ghim / không tồn tại: 422 · Trip của User khác: 404
   → replan.propose: ứng viên = similar_places (embedding đã lưu, cùng kind, bỏ Place đã dùng + Tag tránh)
       → lọc is_open + kịp giờ (make_leg) → xếp theo score(features) → build_itinerary
