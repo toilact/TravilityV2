@@ -146,7 +146,7 @@ export default function MapView({ center, searchPins, itinerary, places, selecte
         )}
         {sel && (
           <Popup longitude={sel.lon} latitude={sel.lat} offset={22} closeOnClick={false} maxWidth="none"
-            className="place-popup" onClose={() => { if (tour == null && selected !== null) onSelect(null) }}>
+            className="place-popup" onClose={() => { stopTour(); onSelect(null) }}>
             <PlacePopup place={sel} date={date} pinned={pins.includes(sel.id)}
               onPin={selected !== 'stay' && onPin ? (v) => onPin(sel.id, v) : undefined} />
           </Popup>

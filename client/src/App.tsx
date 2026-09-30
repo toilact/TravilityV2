@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   applyProposal, clarifyAfter, confirmAfter, getMessages, getTrip, listTrips, optionPlace, reportDisruption,
   restoreVersion, setPin, streamPlan, streamReplan, streamTrip, tripLabel, viewingOld, vnd,
@@ -49,7 +49,9 @@ export default function App() {
   const [selected, setSelected] = useState<Selected>(null)
   const [narrow, setNarrow] = useState(() => matchMedia(NARROW).matches)
   const [panels, setPanels] = useState<Panels>(() => ({ chat: true, timeline: !matchMedia(NARROW).matches }))
-  const [seen, setSeen] = useState(0)  // số tin chat lúc thu gọn, để tính badge
+  const [unread, setUnread] = useState(0)  // tin mới đến lúc Chat đang thu gọn (badge)
+  const chatOpen = useRef(true)  // ref: `add` trong closure của stream cũ vẫn đọc được trạng thái mới
+  chatOpen.current = panels.chat
 
   useEffect(() => {
     const m = matchMedia(NARROW)
@@ -68,9 +70,12 @@ export default function App() {
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
-  const add = (item: ChatItem) => setChat((c) => [...c, item])
+  const add = (item: ChatItem) => {
+    setChat((c) => [...c, item])
+    if (!chatOpen.current) setUnread((u) => u + 1)
+  }
   const openPanel = (side: keyof Panels, open: boolean) => {
-    if (side === 'chat' && !open) setSeen(chat.length)
+    if (side === 'chat' && open) setUnread(0)
     setPanels((p) => setPanel(p, side, open, narrow))
   }
 
@@ -200,13 +205,13 @@ export default function App() {
     <div className="relative h-screen overflow-hidden bg-stone-200 font-sans text-stone-900">
       <MapView center={center} searchPins={searchPins} itinerary={itinerary} places={places}
         selected={selected} onSelect={setSelected} padding={{ left, right }} pins={pins}
-        onPin={tripId != null && version != null && !proposal && !viewingOld(version, latest) ? pin : undefined} />
+        onPin={tripId != null && version != null && !proposal && !busy && !viewingOld(version, latest) ? pin : undefined} />
       <Rail busy={busy} trips={trips} currentId={tripId} onNewTrip={tripId != null ? newTrip : undefined}
         onOpenTrip={(id) => openTrip(id)} onLogout={logout} />
       <FloatingPanel side="left" title={current ? tripLabel(current) : 'Chuyến mới'}
         subtitle={budget != null ? `Ngân sách ${vnd(budget)}` : 'Trợ lý lập lịch trình'}
         open={panels.chat} onToggle={() => openPanel('chat', !panels.chat)}
-        badge={panels.chat ? 0 : Math.max(0, chat.length - seen)}>
+        badge={panels.chat ? 0 : unread}>
         <ChatPanel items={chat} busy={busy} onSend={send}>
           {clarify && <ClarifyCard questions={clarify.questions} busy={busy}
             onSubmit={(a) => answer(clarify.tripId, a)} />}
