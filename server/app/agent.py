@@ -205,7 +205,8 @@ def trip_brief(trip: Trip, rain: list[int | None] | None, hub: Hub | None = None
 
 def place_brief(p: Place) -> dict:
     return {"id": p.id, "name": p.name, "kind": p.kind, "lat": p.lat, "lon": p.lon,
-            "photo_url": p.photo_url, "outdoor": p.outdoor, "price": p.price}
+            "photo_url": p.photo_url, "outdoor": p.outdoor, "price": p.price,
+            "open_hours": p.open_hours, "description": p.description}
 
 
 def _for_llm(p: Place) -> dict:
