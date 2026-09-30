@@ -1,6 +1,6 @@
 # Travility — Roadmap
 
-Cập nhật: **2026-09-29**, sau khi merge lát A+B "Revision giữ mục đích" vào `main`.
+Cập nhật: **2026-09-30**, sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
 Nguồn: [PRD](PRD.md) (§5 yêu cầu, §12 lộ trình, §13 thứ tự cắt), [hiện trạng code](2026-09-25-hien-trang-app.md), GitHub Issues #2–#41.
 Bảng theo dõi trên GitHub (tự tick khi đóng issue): **issue #42** (đã ghim).
 
@@ -30,8 +30,8 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 - [x] Mỗi User chỉ thấy Trip của mình (Trip người khác → 404)
 - [x] LLM đổi được provider: Gemini khi dev, OpenAI khi demo (ADR-0003)
 - [ ] Đăng xuất — #3 (Nhật)
-- [ ] Đăng nhập Google — #12 (Tùng) · *cắt đầu tiên nếu trễ*
-- [ ] Quên mật khẩu qua email — #13 (Tùng) · *cắt đầu tiên nếu trễ*
+- ~~Đăng nhập Google — #12~~ (cắt 2026-09-30)
+- ~~Quên mật khẩu qua email — #13~~ (cắt 2026-09-30)
 
 ## 2. Lập Trip & Itinerary (lõi)
 - [x] Hiểu câu tự nhiên → Trip (Destination, số ngày, ngày đi, số người, Budget, Tag, Pace, Travel Mode)
@@ -77,8 +77,8 @@ Việc nhỏ còn nợ của lát A+B — #37:
 ## 5. Cá nhân hoá Trip
 Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md)
 - [x] **Lát 1** — hỏi lại một vòng, giờ đến/về, Hub (sân bay/bến xe), xe máy/ô tô riêng
-- [ ] **Lát 2** — Chỗ ở đã đặt + điểm bắt buộc ghé — #38 (Thành, T4)
-- [ ] **Lát 3** — Traveler Profile: màn Hồ sơ + chép vào Trip mới — #18 (Thành) · onboarding #23 (Nhật, *cắt thứ 4*)
+- ~~**Lát 2** — Chỗ ở đã đặt + điểm bắt buộc ghé — #38~~ (cắt 2026-09-30)
+- ~~**Lát 3** — Traveler Profile + onboarding — #18, #23~~ (cắt 2026-09-30)
 
 ## 6. Stay, đường đi, chi phí
 - [x] Một Stay cho cả Trip, là điểm đầu/cuối mỗi ngày
@@ -103,9 +103,9 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 
 ## 8. Dữ liệu Place
 - [x] Import JSON → DB + embedding (`scripts/import_places`)
-- 🟡 Đà Lạt: **37 / 150** Place, 27 chưa kiểm chứng — #19 (Quân, T4) · *không được cắt*
+- 🟡 Đà Lạt: **37 / 150** Place, 27 chưa kiểm chứng — #19 (Quân, **mốc cứng 15/10**; trễ thì Thành tự chạy #5, kiểm chứng tay ~40 Place lên demo) · *không được cắt*
 - [ ] Script thu thập bán tự động (OSM/Goong → AI nháp → JSON) — #5 (Quân)
-- [ ] Đà Nẵng – Hội An ≥ 150 Place — #20 (Quân, T8)
+- ~~Đà Nẵng – Hội An ≥ 150 Place — #20~~ (cắt 2026-09-30)
 - [ ] Ảnh Place lưu local phía server — #41 (Quân)
 - ~~Hà Nội / Destination thứ 3 — #21~~ (cắt 2026-09-29)
 
@@ -120,27 +120,28 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - [x] Test tự động: server 131, client 13; đã chạy E2E với Gemini thật
 - [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
 - [ ] demo_cache: ghi và phát lại phản hồi để demo khi mất mạng — #14 (Tùng, T10)
-- [ ] Đóng gói PyInstaller cho app desktop — #15 (Tùng, T10)
+- [ ] Đóng gói PyInstaller Mac .app + Windows .exe qua GitHub Actions; app tự bật server (`/health` → `docker compose up -d`) — #15 (Thành, T10)
 - [ ] Kịch bản demo + diễn tập (có một lần tắt mạng) — #29 (Thành, T10)
 
 ---
 
-## Lộ trình theo tuần (PRD §12)
+## Lộ trình theo tuần (chốt 2026-09-30)
+
+Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần.
 
 | Tuần | Nội dung | Trạng thái |
 |---|---|---|
-| T1 | Nền tảng + AI Trip Planner lõi; cá nhân hoá lát 1 | ✅ |
-| T2–3 | Revision + Pinned + version + Traveler Profile; UI mới | ⏳ |
-| T4 | Đà Lạt 150 Place; Goong Distance Matrix + "không kịp" | ⏳ |
-| T4–T6 | Revision giữ mục đích lát A–D | 🟡 A, B xong (làm sớm) |
-| T5 | Giọng nói | ⏳ |
-| T5–T8 | Đánh giá B0/B1/B2 + ranker (lát E) | ⏳ |
-| T7 | Google login + quên mật khẩu | ⏳ |
-| T8 | Recap + PDF; Destination thứ 2 | ⏳ |
-| T9 | Chuyển OpenAI, golden set, chat → Disruption (lát F), polish | ⏳ |
-| T10 | demo_cache, PyInstaller, diễn tập demo | ⏳ |
+| T1 | Nền tảng + AI Trip Planner lõi; cá nhân hoá lát 1; Revision giữ mục đích lát A+B | ✅ |
+| T2–T3 (→15/10) | Revision đầy đủ: mở lại Trip + lịch sử chat (#17, #3) → Pinned (#25) → version + quay lại (#24) | ⏳ |
+| T4 | UI mới: mockup bằng AI → layout map toàn màn hình + rail (#2, #16, #4); kiểm mốc dữ liệu 15/10; #39 | ⏳ |
+| T5–T6 | Lát C mưa + trễ (#32); Goong Matrix (#7); nợ kỹ thuật (#37) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
+| T7–T8 | Tag chỗ ở + đổi Stay (#26); PDF (#11); recap (#28); ranker (#35) · Nhật giọng nói (#8, #9), bảng chi phí (#40) | ⏳ |
+| T9 | Chuyển OpenAI, golden set (#6), lát F (#36) | ⏳ |
+| T10 | demo_cache (#14), PyInstaller + CI (#15), diễn tập có tắt mạng (#29) | ⏳ |
+
+Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. #22, #24, #25 — Revision thật, version, Pinned (đường găng, không được cắt).
-2. #19 — Đà Lạt lên 150 Place đã kiểm chứng (37 hiện tại quá ít cho engine thay thế).
-3. #2 → #16 — chốt mockup rồi làm UI mới.
+1. #17, #3 → #25 → #24 — Revision đầy đủ (đường găng, không được cắt).
+2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10.
+3. Nhật: chuẩn bị component tách rời (#40, #8/#9, popup Place) để cắm vào layout mới ở T4.

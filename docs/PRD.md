@@ -268,6 +268,8 @@ SERVER (docker compose)
 
 Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2–#41; bảng tổng ở issue #42 và [ROADMAP.md](ROADMAP.md).
 
+> **Chỉnh 2026-09-30:** Thành + AI gánh lõi và đường găng. Việc của thành viên khác là việc thêm, tách rời và cắt được, không chặn ai. Lộ trình theo tuần mới nằm ở [ROADMAP.md](ROADMAP.md).
+
 | Thành viên | Vai | Issue |
 |---|---|---|
 | **Đỗ Chí Thành** (@toilact) — trưởng nhóm | B: Agent, rules, Revision (đường găng) + Goong Matrix + golden set + demo | #17, #22, #24, #25, #26, #39, #18, #38, #7, #31, #32, #36, #37, #6, #29 |
@@ -291,12 +293,11 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 
 ## 13. Thứ tự cắt khi trễ
 Đã cắt (2026-09-29, nhường chỗ §5.11): Inspiration Photo, Destination thứ 3.
+Đã cắt (2026-09-30, nhóm thực tế do một người gánh đường găng): Google login + quên mật khẩu (#12, #13), Traveler Profile + onboarding (#18, #23), cá nhân hoá lát 2 (#38), Destination thứ 2 Đà Nẵng – Hội An (#20).
 
-1. Google login + quên mật khẩu
-2. Cinematic recap (giữ nút "Xem hành trình" đơn giản)
-3. ML ranker (giữ bảng B0/B1/B2)
-4. Onboarding (giữ màn Hồ sơ)
-5. Bản đồ theo thời điểm
+1. Cinematic recap (giữ nút "Xem hành trình" đơn giản)
+2. ML ranker (giữ bảng B0/B1/B2)
+3. Bản đồ theo thời điểm
 
 **Không cắt:** lõi lập Itinerary · Revision + Pinned + version · Disruption → Proposal (lát A–C) · email/mật khẩu · UI mới · Đà Lạt 150 Place.
 
