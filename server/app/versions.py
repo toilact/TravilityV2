@@ -35,3 +35,10 @@ def set_pin(trip_id: int, body: PinIn, user_id: int = Depends(current_user), con
     row = conn.execute(f"UPDATE trips SET pinned_place_ids = {sql} WHERE id = %(t)s RETURNING pinned_place_ids",
                        {"p": body.place_id, "t": trip_id}).fetchone()
     return {"pinned_place_ids": row["pinned_place_ids"]}
+
+
+@router.get("/trips/{trip_id}/messages")
+def get_messages(trip_id: int, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+    _own(conn, trip_id, user_id)
+    return conn.execute("SELECT role, text, version, created_at FROM messages WHERE trip_id = %s ORDER BY id",
+                        (trip_id,)).fetchall()

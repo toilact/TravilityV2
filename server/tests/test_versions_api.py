@@ -78,3 +78,26 @@ def test_replan_keeps_pinned_place(client, conn, monkeypatch):
     assert evs[-1]["type"] == "itinerary" and evs[-1]["itinerary"]["summary"] == "có ghim"
     got = client.get(f"/trips/{tid}", headers=h).json()
     assert got["itinerary"]["days"][0]["stops"][0]["pinned"] is True
+
+
+def history(client, h, tid):
+    return [(m["role"], m["text"], m["version"]) for m in client.get(f"/trips/{tid}/messages", headers=h).json()]
+
+
+def test_messages_record_conversation_in_order(client, conn, monkeypatch):
+    h, tid, pid = trip_with_itinerary(client, conn, monkeypatch)
+    use_llm(monkeypatch, [reply(("answer", {"text": "0 km"}))])
+    events(client.post("/trips", json={"message": "bao xa?", "trip_id": tid}, headers=h))
+    other = add_place(conn, name="Cafe rẻ", kind="cafe")
+    use_llm(monkeypatch, [reply(("search_places", {"query": "cafe rẻ"})),
+                          reply(("edit_itinerary", {"summary": "Đổi quán rẻ", "ops": [
+                              {"op": "replace_stop", "day": 1, "stop": 1, "place_id": other}]}))])
+    events(client.post("/trips", json={"message": "rẻ hơn", "trip_id": tid}, headers=h))
+    assert history(client, h, tid) == [("user", "x", None), ("ai", "ok", 1),
+                                       ("user", "bao xa?", None), ("ai", "0 km", None),
+                                       ("user", "rẻ hơn", None), ("ai", "Đổi quán rẻ", 2)]
+
+
+def test_messages_other_user_404(client, conn, monkeypatch):
+    h, tid, _ = trip_with_itinerary(client, conn, monkeypatch)
+    assert client.get(f"/trips/{tid}/messages", headers=auth(client, "binh@example.com")).status_code == 404

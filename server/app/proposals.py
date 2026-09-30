@@ -10,7 +10,7 @@ from app.db import get_conn
 from app.domain import Disruption, Trip
 from app.places import get_places, list_destinations, similar_places
 from app.replan import InvalidDisruption, NoFeasible, propose
-from app.trips import hub_for, load_itinerary, save_itinerary
+from app.trips import hub_for, load_itinerary, log_message, save_itinerary
 
 router = APIRouter()
 STALE = "Lịch trình đã có bản mới hơn, hãy mở bản mới nhất rồi thử lại."
@@ -101,6 +101,7 @@ def apply_proposal(trip_id: int, proposal_id: int, body: ApplyIn, user_id: int =
                 raise HTTPException(409, STALE) from None
             conn.execute("UPDATE proposals SET chosen_index = %s, applied_version = %s WHERE id = %s",
                          (body.option, version, proposal_id))
+            log_message(conn, trip_id, "ai", f"Đã áp dụng phương án — lịch trình bản {version}.", version)
     opt = p["options"][body.option]
     return {"type": "itinerary", "itinerary": opt["itinerary"], "places": opt["places"],
             "trip_id": trip_id, "version": version}

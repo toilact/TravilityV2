@@ -156,3 +156,13 @@ def test_concurrent_apply_of_two_proposals_second_gets_409(client, conn, monkeyp
     [t.start() for t in ts]
     [t.join() for t in ts]
     assert sorted(results.values(), key=str) == sorted([2, 409], key=str)
+
+
+def test_apply_logs_message(client, conn):
+    h, tid = seed(conn, client)
+    pid = disrupt(client, h, tid).json()["proposal_id"]
+    client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
+    client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})  # idempotent: không ghi lần 2
+    rows = conn.execute("SELECT role, text, version FROM messages WHERE trip_id = %s", (tid,)).fetchall()
+    assert [(r["role"], r["version"]) for r in rows] == [("ai", 2)]
+    assert "bản 2" in rows[0]["text"]

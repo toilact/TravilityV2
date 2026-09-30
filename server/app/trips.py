@@ -86,12 +86,18 @@ def save_itinerary(conn, trip_id: int, itinerary: dict, places: dict) -> int:
         (trip_id, Jsonb({"itinerary": itinerary, "places": places}), trip_id)).fetchone()["version"]
 
 
+def log_message(conn, trip_id: int, role: str, text: str, version: int | None = None) -> None:
+    conn.execute("INSERT INTO messages(trip_id, role, text, version) VALUES (%s, %s, %s, %s)",
+                 (trip_id, role, text, version))
+
+
 def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str], previous=None):
     rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days)
     for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages,
                    previous):
         if ev["type"] == "itinerary":
             version = save_itinerary(conn, trip_id, ev["itinerary"], ev["places"])
+            log_message(conn, trip_id, "ai", ev["itinerary"]["summary"], version)
             ev = {**ev, "trip_id": trip_id, "version": version}
         yield sse(ev)
 
@@ -143,11 +149,15 @@ def _follow_up(conn, client, prev: dict, itin: Itinerary, dest: dict, message: s
         if ev["type"] == "confirm_replan":
             conn.execute("UPDATE trips SET pending_replan = %s WHERE id = %s",
                          (Jsonb({k: ev[k] for k in ("changes", "message", "text")}), prev["id"]))
+            log_message(conn, prev["id"], "ai", ev["text"])
             ev = {**ev, "trip_id": prev["id"]}
         elif ev["type"] == "itinerary":
             version = save_itinerary(conn, prev["id"], ev["itinerary"], ev["places"])
+            log_message(conn, prev["id"], "ai", ev["itinerary"]["summary"], version)
             conn.execute("UPDATE trips SET user_messages = user_messages || %s WHERE id = %s", ([message], prev["id"]))
             ev = {**ev, "trip_id": prev["id"], "version": version}
+        elif ev["type"] == "answer":
+            log_message(conn, prev["id"], "ai", ev["text"])
         yield sse(ev)
 
 
@@ -175,6 +185,7 @@ def _run(conn, user_id: int, message: str, prev: dict | None = None):
     yield sse({"type": "thinking", "text": "Đang đọc yêu cầu của bạn…"})
     latest = latest_itinerary(conn, prev["id"]) if prev else None
     if latest:
+        log_message(conn, prev["id"], "user", message)
         yield from _follow_up(conn, client, prev, latest[1], dests[prev["spec"]["destination"]], message)
         return
     try:
@@ -197,6 +208,7 @@ def _run(conn, user_id: int, message: str, prev: dict | None = None):
     else:
         trip_id = conn.execute("INSERT INTO trips(user_id, spec, user_messages) VALUES (%s, %s, %s) RETURNING id",
                                (user_id, spec, user_messages)).fetchone()["id"]
+    log_message(conn, trip_id, "user", message)
     yield _trip_event(trip_id, trip, d)
     questions = [] if prev else missing_questions(trip)
     if questions:
