@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  applyProposal, clarifyAfter, confirmAfter, optionPlace, reportDisruption, streamPlan, streamReplan, streamTrip,
-  type AgentEvent, type Answers,
-  type Clarify, type ConfirmReplan, type DisruptionKind, type Itinerary, type ItineraryEvent, type Place, type Proposal,
+  applyProposal, clarifyAfter, confirmAfter, getMessages, getTrip, listTrips, optionPlace, reportDisruption,
+  restoreVersion, setPin, streamPlan, streamReplan, streamTrip, viewingOld,
+  type AgentEvent, type Answers, type Clarify, type ConfirmReplan, type DisruptionKind, type Itinerary,
+  type ItineraryEvent, type Place, type Proposal, type TripSummary,
 } from './api'
 import ChatPanel, { type ChatItem } from './components/ChatPanel'
 import ClarifyCard from './components/ClarifyCard'
@@ -37,6 +38,18 @@ export default function App() {
   const [version, setVersion] = useState<number | null>(null)  // version Itinerary đang xem, gửi kèm Disruption
   const [proposal, setProposal] = useState<Proposal | null>(null)
   const [changed, setChanged] = useState<[number, number][]>([])  // Stop vừa đổi, tô viền trên Timeline
+  const [versions, setVersions] = useState<number[]>([])
+  const [latest, setLatest] = useState<number | null>(null)  // bản mới nhất; `version` là bản đang xem
+  const [pins, setPins] = useState<number[]>([])
+  const [trips, setTrips] = useState<TripSummary[]>([])
+
+  useEffect(() => {  // mở app: tải danh sách + mở Trip gần nhất
+    if (!token) return
+    listTrips(token).then((ts) => {
+      setTrips(ts)
+      if (ts.length > 0) openTrip(ts[0].id)
+    }).catch(() => { /* server chưa chạy → giữ empty state, lỗi sẽ hiện khi gửi tin */ })
+  }, [token])
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
@@ -48,6 +61,7 @@ export default function App() {
     switch (e.type) {
       case 'thinking': add({ role: 'ai', text: e.text }); break
       case 'trip':
+        if (e.trip_id !== tripId) { setVersions([]); setPins([]); setLatest(null) }
         setTripId(e.trip_id); setVersion(null); setProposal(null)
         setCenter(e.center); setBudget(e.trip.budget); setItinerary(null)
         break
@@ -57,6 +71,7 @@ export default function App() {
         break
       case 'itinerary':
         setPlaces(e.places); setItinerary(e.itinerary); setVersion(e.version); setChanged(e.changed ?? []); setSearchPins([])
+        setLatest(e.version); setVersions((vs) => vs.includes(e.version) ? vs : [...vs, e.version])
         add({ role: 'ai', text: e.itinerary.summary })
         break
       case 'answer': add({ role: 'ai', text: e.text }); break
@@ -91,6 +106,43 @@ export default function App() {
     }
   }
 
+  function showView(v: { itinerary: Itinerary | null; places: Record<string, Place>; version: number | null }) {
+    setItinerary(v.itinerary); setPlaces(v.places); setVersion(v.version); setChanged([])
+    setProposal(null); setSearchPins([])
+  }
+
+  async function openTrip(id: number, withChat = true) {
+    const t = await call(() => getTrip(token!, id))
+    if (!t) return
+    setTripId(id); setCenter(t.center); setBudget(t.trip.budget); setClarify(null); setConfirm(null)
+    setVersions(t.versions); setLatest(t.version); setPins(t.pinned_place_ids)
+    showView(t)
+    if (withChat) {
+      const ms = await call(() => getMessages(token!, id))
+      setChat((ms ?? []).map(({ role, text }) => ({ role, text })))
+    }
+  }
+
+  const viewVersion = async (v: number) => {
+    const t = await call(() => getTrip(token!, tripId!, v))
+    if (t) showView(t)
+  }
+
+  const restore = async () => {
+    const ev = await call(() => restoreVersion(token!, tripId!, version!))
+    if (!ev) return
+    setVersions((vs) => [...vs, ev.version]); setLatest(ev.version); setPins(ev.pinned_place_ids)
+    showView(ev)
+    add({ role: 'ai', text: `Đã quay lại bản ${version} (thành bản ${ev.version}).` })
+  }
+
+  const pin = async (placeId: number, pinned: boolean) => {
+    const r = await call(() => setPin(token!, tripId!, placeId, pinned))
+    if (r) setPins(r.pinned_place_ids)
+  }
+
+  const logout = () => { saveToken(null); setToken(null); newTrip(); setTrips([]) }
+
   const disrupt = async (kind: DisruptionKind, day: number, stop: number) => {
     const p = await call(() => reportDisruption(token!, tripId!, version!, kind, day, stop))
     if (!p) return
@@ -104,22 +156,26 @@ export default function App() {
     setChanged(proposal!.options?.[option]?.changed ?? [])
     setProposal(null); setSearchPins([])
     setPlaces(ev.places); setItinerary(ev.itinerary); setVersion(ev.version)
+    setLatest(ev.version); setVersions((vs) => [...vs, ev.version])
     add({ role: 'ai', text: `Đã áp dụng phương án — lịch trình bản ${ev.version}.` })
   }
 
-  const send = (message: string) => {
+  const send = async (message: string) => {
+    if (viewingOld(version, latest)) await viewVersion(latest!)
     add({ role: 'user', text: message })
-    return run((on) => streamTrip(token!, message, tripId, on))
+    await run((on) => streamTrip(token!, message, tripId, on))
+    listTrips(token!).then(setTrips).catch(() => {})
   }
   const newTrip = () => {
     setTripId(null); setVersion(null); setProposal(null); setChat([]); setClarify(null); setConfirm(null)
-    setItinerary(null); setSearchPins([]); setBudget(null)
+    setItinerary(null); setSearchPins([]); setBudget(null); setVersions([]); setLatest(null); setPins([])
   }
   const answer = (tripId: number, a: Answers) => run((on) => streamPlan(token!, tripId, a, on))
 
   return (
     <div className="grid h-screen grid-cols-[22rem_1fr_24rem] bg-stone-50 text-stone-900">
-      <ChatPanel items={chat} busy={busy} onSend={send} onNewTrip={tripId != null ? newTrip : undefined}>
+      <ChatPanel items={chat} busy={busy} onSend={send} onNewTrip={tripId != null ? newTrip : undefined}
+        trips={trips} onOpenTrip={(id) => openTrip(id)} onLogout={logout}>
         {clarify && <ClarifyCard questions={clarify.questions} busy={busy}
           onSubmit={(a) => answer(clarify.tripId, a)} />}
         {confirm && <ConfirmCard text={confirm.text} busy={busy}
@@ -128,7 +184,9 @@ export default function App() {
       </ChatPanel>
       <MapView center={center} searchPins={searchPins} itinerary={itinerary} places={places} />
       <Timeline itinerary={itinerary} places={places} budget={budget} busy={busy} changed={changed}
-        onDisrupt={tripId != null && version != null ? disrupt : undefined}>
+        onDisrupt={tripId != null && version != null ? disrupt : undefined}
+        versions={versions} version={version} latest={latest} pins={pins}
+        onView={viewVersion} onRestore={restore} onPin={tripId != null && version != null ? pin : undefined}>
         {proposal && <ProposalPanel proposal={proposal} busy={busy} onApply={apply}
           onClose={() => { setProposal(null); setSearchPins([]) }} />}
       </Timeline>
