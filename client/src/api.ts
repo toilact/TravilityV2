@@ -5,6 +5,7 @@ const API = import.meta.env.VITE_API_URL as string
 export type Place = {
   id: number; name: string; kind: string; lat: number; lon: number
   photo_url: string | null; outdoor: boolean; price: number
+  open_hours?: Record<string, [string, string] | null>; description?: string  // thiếu ở Itinerary lưu trước T4
 }
 export type Stop = {
   place_id: number; start_time: string; duration_min: number; reason: string; pinned: boolean; est_cost: number

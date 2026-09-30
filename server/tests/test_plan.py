@@ -6,7 +6,7 @@ from app.domain import Draft, Hub, Trip
 from app.places import get_places
 from app.rules import build_itinerary
 from tests.fakes import FakeClient, reply
-from tests.helpers import add_place, unit_vec
+from tests.helpers import ALL_DAY, add_place, unit_vec
 
 
 @pytest.fixture(autouse=True)
@@ -171,3 +171,12 @@ def test_plan_rejects_draft_dropping_pinned_place_then_retries(conn):
     assert "Thiếu Place đã ghim" in tool_messages(client)[0]
     assert [s["place_id"] for s in events[-1]["itinerary"]["days"][0]["stops"]] == [a, b]
     assert "đã ghim" in client.calls[0]["messages"][1]["content"]
+
+
+def test_itinerary_places_carry_hours_and_description(conn):
+    a, b = add_place(conn, name="Cafe", kind="cafe"), add_place(conn, name="Hồ", vec=1)
+    _, events = run(conn, [reply(("search_places", {"query": "cafe"})),
+                           reply(("submit_itinerary", stops(a, b)))])
+    p = events[-1]["places"][str(a)]
+    assert p["open_hours"] == ALL_DAY and p["description"] == ""
+    assert events[0]["places"][0]["open_hours"] == ALL_DAY
