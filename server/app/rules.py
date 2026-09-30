@@ -75,6 +75,9 @@ def _check_draft(trip: Trip, draft: Draft, places: dict[int, Place], pinned=froz
     unknown = sorted(i for i in ids if i not in places)
     if unknown:
         raise InvalidDraft(f"place_id không tồn tại hoặc chưa được tìm: {unknown}")
+    stays = sorted({s.place_id for d in draft.days for s in d.stops if places[s.place_id].kind == "cho-o"})
+    if stays:
+        raise InvalidDraft(f"Place {stays} là chỗ ở — đặt vào stay_place_id, không làm Stop")
     if len(draft.days) != trip.days:
         raise InvalidDraft(f"Trip có {trip.days} ngày nhưng Itinerary có {len(draft.days)} ngày")
     if trip.days > 1 and draft.stay_place_id is None:
