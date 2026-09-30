@@ -63,3 +63,6 @@ CREATE TABLE IF NOT EXISTS proposals (
   applied_version integer,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Pinned Stop: thuộc Trip, không thuộc version; gán vào stop.pinned khi đọc (spec revision-day-du §2 D2)
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS pinned_place_ids integer[] NOT NULL DEFAULT '{}';

@@ -102,10 +102,25 @@ def _parse_input(user_messages: list[str]) -> str:
     return "\n".join(f"Tin nhắn {i + 1}: {m}" for i, m in enumerate(user_messages))
 
 
+def load_itinerary(conn, trip_id: int, version: int | None = None) -> tuple[int, Itinerary, dict] | None:
+    """Đọc một version (mặc định bản mới nhất); stop.pinned lấy từ trips.pinned_place_ids, không từ data đã lưu."""
+    row = conn.execute(
+        """SELECT i.version, i.data, t.pinned_place_ids FROM itineraries i JOIN trips t ON t.id = i.trip_id
+           WHERE i.trip_id = %s AND (%s::int IS NULL OR i.version = %s) ORDER BY i.version DESC LIMIT 1""",
+        (trip_id, version, version)).fetchone()
+    if not row:
+        return None
+    itin = Itinerary.model_validate(row["data"]["itinerary"])
+    pins = set(row["pinned_place_ids"])
+    for d in itin.days:
+        for s in d.stops:
+            s.pinned = s.place_id in pins
+    return row["version"], itin, row["data"]["places"]
+
+
 def latest_itinerary(conn, trip_id: int) -> tuple[int, Itinerary] | None:
-    row = conn.execute("SELECT version, data FROM itineraries WHERE trip_id = %s ORDER BY version DESC LIMIT 1",
-                       (trip_id,)).fetchone()
-    return (row["version"], Itinerary.model_validate(row["data"]["itinerary"])) if row else None
+    r = load_itinerary(conn, trip_id)
+    return (r[0], r[1]) if r else None
 
 
 def itinerary_places(conn, itin: Itinerary) -> dict:
@@ -235,19 +250,26 @@ def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user)
 
 @router.get("/trips")
 def list_trips(user_id: int = Depends(current_user), conn=Depends(get_conn)):
-    return conn.execute("SELECT id, spec, created_at FROM trips WHERE user_id = %s ORDER BY id DESC",
-                        (user_id,)).fetchall()
+    return conn.execute(
+        """SELECT t.id, t.spec, t.created_at, d.name AS destination_name
+           FROM trips t LEFT JOIN destinations d ON d.slug = t.spec->>'destination'
+           WHERE t.user_id = %s ORDER BY t.id DESC""", (user_id,)).fetchall()
 
 
 @router.get("/trips/{trip_id}")
-def get_trip(trip_id: int, user_id: int = Depends(current_user), conn=Depends(get_conn)):
-    trip = conn.execute("SELECT id, spec FROM trips WHERE id = %s AND user_id = %s",
+def get_trip(trip_id: int, version: int | None = None, user_id: int = Depends(current_user),
+             conn=Depends(get_conn)):
+    trip = conn.execute("SELECT id, spec, pinned_place_ids FROM trips WHERE id = %s AND user_id = %s",
                         (trip_id, user_id)).fetchone()
     if not trip:
         raise HTTPException(404, "Không tìm thấy chuyến đi")
-    it = conn.execute("SELECT version, data FROM itineraries WHERE trip_id = %s ORDER BY version DESC LIMIT 1",
-                      (trip_id,)).fetchone()
-    return {"trip_id": trip["id"], "trip": trip["spec"],
-            "version": it["version"] if it else None,
-            "itinerary": it["data"]["itinerary"] if it else None,
-            "places": it["data"]["places"] if it else {}}
+    it = load_itinerary(conn, trip_id, version)
+    if version is not None and not it:
+        raise HTTPException(404, "Không tìm thấy phiên bản lịch trình")
+    versions = [r["version"] for r in conn.execute(
+        "SELECT version FROM itineraries WHERE trip_id = %s ORDER BY version", (trip_id,)).fetchall()]
+    dest = next(d for d in list_destinations(conn) if d["slug"] == trip["spec"]["destination"])
+    return {"trip_id": trip["id"], "trip": trip["spec"], "center": [dest["lon"], dest["lat"]],
+            "version": it[0] if it else None,
+            "itinerary": it[1].model_dump(mode="json") if it else None,
+            "places": it[2] if it else {}, "versions": versions, "pinned_place_ids": trip["pinned_place_ids"]}

@@ -7,10 +7,10 @@ from pydantic import BaseModel, Field
 from app.agent import itinerary_event
 from app.auth import current_user
 from app.db import get_conn
-from app.domain import Disruption, Itinerary, Trip
+from app.domain import Disruption, Trip
 from app.places import get_places, list_destinations, similar_places
 from app.replan import InvalidDisruption, NoFeasible, propose
-from app.trips import hub_for, save_itinerary
+from app.trips import hub_for, load_itinerary, save_itinerary
 
 router = APIRouter()
 STALE = "Lịch trình đã có bản mới hơn, hãy mở bản mới nhất rồi thử lại."
@@ -39,13 +39,12 @@ def _latest_version(conn, trip_id: int) -> int | None:
 def create_disruption(trip_id: int, body: DisruptionIn, user_id: int = Depends(current_user),
                       conn=Depends(get_conn)):
     trip = _trip(conn, trip_id, user_id)
-    row = conn.execute("SELECT data FROM itineraries WHERE trip_id = %s AND version = %s",
-                       (trip_id, body.version)).fetchone()
-    if not row:
+    loaded = load_itinerary(conn, trip_id, body.version)
+    if not loaded:
         raise HTTPException(404, "Không tìm thấy phiên bản lịch trình")
     if body.version != _latest_version(conn, trip_id):
         raise HTTPException(409, STALE)
-    itin = Itinerary.model_validate(row["data"]["itinerary"])
+    itin = loaded[1]
     ids = {s.place_id for d in itin.days for s in d.stops}
     if itin.stay_place_id is not None:
         ids.add(itin.stay_place_id)

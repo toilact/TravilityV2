@@ -38,10 +38,12 @@ def seed(conn, client, pinned=False):
                        (uid, Jsonb(TRIP.model_dump(mode="json")))).fetchone()["id"]
     places = get_places(conn, [cafe, museum])
     draft = Draft.model_validate({"summary": "", "days": [{"stops": [
-        {"place_id": cafe, "start_time": "09:00", "duration_min": 60, "pinned": pinned},
+        {"place_id": cafe, "start_time": "09:00", "duration_min": 60},
         {"place_id": museum, "start_time": "11:00", "duration_min": 60}]}]})
     ev = itinerary_event(build_itinerary(TRIP, draft, places), places)
     save_itinerary(conn, tid, ev["itinerary"], ev["places"])
+    if pinned:
+        conn.execute("UPDATE trips SET pinned_place_ids = %s WHERE id = %s", ([cafe], tid))
     return h, tid
 
 
