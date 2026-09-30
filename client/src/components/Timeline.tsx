@@ -1,21 +1,26 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { intentChips, mealOf, viewingOld, vnd, type DisruptionKind, type Itinerary, type Place } from '../api'
+import type { Selected } from '../place'
+import PlaceThumb from './PlaceThumb'
 
 export default function Timeline({ itinerary, places, budget, busy = false, changed = [], onDisrupt,
-  versions = [], version = null, latest = null, pins = [], onView, onRestore, onPin, children }: {
+  versions = [], version = null, latest = null, pins = [], onView, onRestore, onPin, selected = null, onSelect, children }: {
   itinerary: Itinerary | null; places: Record<string, Place>; budget: number | null; changed?: [number, number][]
   busy?: boolean; onDisrupt?: (kind: DisruptionKind, dayIndex: number, stopIndex: number) => void
   versions?: number[]; version?: number | null; latest?: number | null; pins?: number[]
   onView?: (v: number) => void; onRestore?: () => void; onPin?: (placeId: number, pinned: boolean) => void
+  selected?: Selected; onSelect?: (s: Selected) => void
   children?: ReactNode
 }) {
-  if (!itinerary) {
-    return <aside className="border-l border-stone-200 p-4 text-sm text-stone-500">Lịch trình sẽ hiện ở đây.</aside>
-  }
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {  // chọn từ bản đồ hoặc tour → cuộn Timeline tới Stop đó
+    root.current?.querySelector('[data-selected]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selected])
+  if (!itinerary) return null
   const stay = itinerary.stay_place_id != null ? places[itinerary.stay_place_id] : undefined
   const old = viewingOld(version, latest)
   return (
-    <aside className="min-h-0 overflow-y-auto border-l border-stone-200 p-4">
+    <div ref={root} className="min-h-0 flex-1 overflow-y-auto p-4">
       {children}
       {versions.length > 1 && (
         <nav aria-label="Phiên bản lịch trình" className="mb-2 flex flex-wrap items-center gap-1 text-xs">
@@ -23,7 +28,7 @@ export default function Timeline({ itinerary, places, budget, busy = false, chan
             <span key={v} className="flex items-center gap-1">
               {i > 0 && <span className="text-stone-400">·</span>}
               <button disabled={busy} aria-current={v === version ? 'true' : undefined} onClick={() => onView?.(v)}
-                className={`rounded px-1.5 py-0.5 ${v === version ? 'bg-emerald-700 text-white' : 'hover:bg-stone-200'}`}>
+                className={`rounded px-1.5 py-0.5 ${v === version ? 'bg-pine text-white' : 'hover:bg-stone-200'}`}>
                 v{v}
               </button>
             </span>
@@ -43,7 +48,12 @@ export default function Timeline({ itinerary, places, budget, busy = false, chan
         <div className="text-sm text-stone-500">Tổng chi phí ước tính</div>
         <div className="text-2xl font-semibold">{vnd(itinerary.total_cost)}</div>
         {budget != null && <div className="text-xs text-stone-500">Budget {vnd(budget)} · chưa gồm vé đến/rời thành phố</div>}
-        {stay && <div className="mt-1 text-xs">Chỗ ở: {stay.name}</div>}
+        {stay && (
+          <button type="button" onClick={() => onSelect?.('stay')}
+            className={`mt-1 block text-left text-xs hover:underline ${selected === 'stay' ? 'font-semibold text-pine' : ''}`}>
+            Chỗ ở: {stay.name}
+          </button>
+        )}
         {intentChips(itinerary).length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
             {intentChips(itinerary).map((c) => (
@@ -70,38 +80,49 @@ export default function Timeline({ itinerary, places, budget, busy = false, chan
           </h2>
           <ol className="space-y-2">
             {day.stops.map((s, j) => {
-              const meal = mealOf(places[s.place_id]?.kind, s.start_time)
+              const p = places[s.place_id]
+              const meal = mealOf(p?.kind, s.start_time)
               const pinned = pins.includes(s.place_id)
+              const on = selected !== null && selected !== 'stay' && selected.day === i && selected.stop === j
               return (
-              <li key={j} className={`rounded-lg p-3 text-sm shadow-sm ${pinned ? 'bg-emerald-50' : 'bg-white'} ${
-                changed.some(([d, k]) => d === i && k === j) ? 'ring-2 ring-amber-400' : ''}`}>
-                {meal && <div className="mb-1 text-xs font-medium text-amber-700">🍜 {meal}</div>}
-                <div className="flex justify-between gap-2">
-                  <span className="font-medium">{s.start_time} · {places[s.place_id]?.name}</span>
-                  <span className="shrink-0">{vnd(s.est_cost)}</span>
-                </div>
-                <p className="mt-1 text-xs text-stone-500">{s.reason}</p>
-                {!old && (onDisrupt || onPin) && (
-                  <div className="mt-2 flex gap-2 text-xs">
-                    {onPin && (
-                      <button type="button" disabled={busy} aria-pressed={pinned}
-                        title={pinned ? 'Bỏ ghim' : 'Ghim: AI không được đổi Stop này'}
-                        onClick={() => onPin(s.place_id, !pinned)}
-                        className={`rounded border px-2 py-0.5 disabled:opacity-40 ${
-                          pinned ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-stone-300 hover:bg-stone-100'}`}>
-                        📌 {pinned ? 'Đã ghim' : 'Ghim'}
-                      </button>
-                    )}
-                    {onDisrupt && (['closed', 'disliked'] as const).map((k) => (
-                      <button key={k} type="button" disabled={busy || pinned}
-                        title={pinned ? 'Bỏ ghim để đổi' : undefined}
-                        onClick={() => onDisrupt(k, i, j)}
-                        className="rounded border border-stone-300 px-2 py-0.5 hover:bg-stone-100 disabled:opacity-40">
-                        {k === 'closed' ? 'Báo đóng cửa' : 'Đổi chỗ khác'}
-                      </button>
-                    ))}
+              <li key={j} data-selected={on || undefined} onClick={() => onSelect?.({ day: i, stop: j })}
+                className={`flex cursor-pointer gap-3 rounded-xl border p-2.5 text-sm ${
+                  pinned ? 'border-pine/25 bg-pine-soft' : 'border-stone-200 bg-white'} ${
+                  on ? 'outline-2 outline-offset-1 outline-marigold' : ''} ${
+                  changed.some(([d, k]) => d === i && k === j) ? 'ring-2 ring-amber-400' : ''}`}>
+                <PlaceThumb kind={p?.kind ?? ''} photo={p?.photo_url} />
+                <div className="min-w-0 flex-1">
+                  {meal && <div className="mb-0.5 text-xs font-medium text-amber-700">🍜 {meal}</div>}
+                  <div className="flex justify-between gap-2">
+                    <button type="button" className="min-w-0 truncate text-left font-semibold"
+                      onClick={(e) => { e.stopPropagation(); onSelect?.({ day: i, stop: j }) }}>
+                      {s.start_time} · {p?.name}
+                    </button>
+                    <span className="shrink-0 tabular-nums">{vnd(s.est_cost)}</span>
                   </div>
-                )}
+                  <p className="mt-0.5 text-xs text-stone-500">{s.reason}</p>
+                  {!old && (onPin || (onDisrupt && on)) && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs" onClick={(e) => e.stopPropagation()}>
+                      {onPin && (
+                        <button type="button" disabled={busy} aria-pressed={pinned}
+                          title={pinned ? 'Bỏ ghim' : 'Ghim: AI không được đổi Stop này'}
+                          onClick={() => onPin(s.place_id, !pinned)}
+                          className={`rounded border px-2 py-0.5 disabled:opacity-40 ${
+                            pinned ? 'border-pine bg-pine text-white' : 'border-stone-300 hover:bg-stone-100'}`}>
+                          📌 {pinned ? 'Đã ghim' : 'Ghim'}
+                        </button>
+                      )}
+                      {onDisrupt && on && (['closed', 'disliked'] as const).map((k) => (
+                        <button key={k} type="button" disabled={busy || pinned}
+                          title={pinned ? 'Bỏ ghim để đổi' : undefined}
+                          onClick={() => onDisrupt(k, i, j)}
+                          className="rounded border border-stone-300 px-2 py-0.5 hover:bg-stone-100 disabled:opacity-40">
+                          {k === 'closed' ? 'Báo đóng cửa' : 'Đổi chỗ khác'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </li>
               )
             })}
@@ -111,6 +132,6 @@ export default function Timeline({ itinerary, places, budget, busy = false, chan
           </p>
         </section>
       ))}
-    </aside>
+    </div>
   )
 }
