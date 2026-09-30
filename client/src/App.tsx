@@ -12,6 +12,7 @@ import Login from './components/Login'
 import MapView from './components/MapView'
 import ProposalPanel from './components/ProposalPanel'
 import Timeline from './components/Timeline'
+import { type Selected } from './place'
 
 function loadToken() {
   try { return localStorage.getItem('token') } catch { return null }
@@ -42,6 +43,7 @@ export default function App() {
   const [latest, setLatest] = useState<number | null>(null)  // bản mới nhất; `version` là bản đang xem
   const [pins, setPins] = useState<number[]>([])
   const [trips, setTrips] = useState<TripSummary[]>([])
+  const [selected, setSelected] = useState<Selected>(null)
 
   useEffect(() => {  // mở app: tải danh sách + mở Trip gần nhất
     if (!token) return
@@ -71,6 +73,7 @@ export default function App() {
         break
       case 'itinerary':
         setPlaces(e.places); setItinerary(e.itinerary); setVersion(e.version); setChanged(e.changed ?? []); setSearchPins([])
+        setSelected(null)
         setLatest(e.version); setVersions((vs) => vs.includes(e.version) ? vs : [...vs, e.version])
         add({ role: 'ai', text: e.itinerary.summary })
         break
@@ -108,7 +111,7 @@ export default function App() {
 
   function showView(v: { itinerary: Itinerary | null; places: Record<string, Place>; version: number | null }) {
     setItinerary(v.itinerary); setPlaces(v.places); setVersion(v.version); setChanged([])
-    setProposal(null); setSearchPins([])
+    setProposal(null); setSearchPins([]); setSelected(null)
   }
 
   async function openTrip(id: number, withChat = true) {
@@ -154,7 +157,7 @@ export default function App() {
     const ev: ItineraryEvent | undefined = await call(() => applyProposal(token!, tripId!, proposal!.proposal_id, option))
     if (!ev) return
     setChanged(proposal!.options?.[option]?.changed ?? [])
-    setProposal(null); setSearchPins([])
+    setProposal(null); setSearchPins([]); setSelected(null)
     setPlaces(ev.places); setItinerary(ev.itinerary); setVersion(ev.version)
     setLatest(ev.version); setVersions((vs) => [...vs, ev.version])
     add({ role: 'ai', text: `Đã áp dụng phương án — lịch trình bản ${ev.version}.` })
@@ -168,7 +171,7 @@ export default function App() {
   }
   const newTrip = () => {
     setTripId(null); setVersion(null); setProposal(null); setChat([]); setClarify(null); setConfirm(null)
-    setItinerary(null); setSearchPins([]); setBudget(null); setVersions([]); setLatest(null); setPins([])
+    setItinerary(null); setSearchPins([]); setBudget(null); setVersions([]); setLatest(null); setPins([]); setSelected(null)
   }
   const answer = (tripId: number, a: Answers) => run((on) => streamPlan(token!, tripId, a, on))
 
@@ -182,7 +185,9 @@ export default function App() {
           onYes={() => run((on) => streamReplan(token!, confirm, on))}
           onNo={() => { setConfirm(null); add({ role: 'ai', text: 'Đã giữ nguyên lịch trình.' }) }} />}
       </ChatPanel>
-      <MapView center={center} searchPins={searchPins} itinerary={itinerary} places={places} />
+      <div className="relative"><MapView center={center} searchPins={searchPins} itinerary={itinerary} places={places}
+        selected={selected} onSelect={setSelected} padding={{ left: 0, right: 0 }} pins={pins}
+        onPin={tripId != null && version != null && !proposal && !viewingOld(version, latest) ? pin : undefined} /></div>
       <Timeline itinerary={itinerary} places={places} budget={budget} busy={busy} changed={changed}
         onDisrupt={tripId != null && version != null ? disrupt : undefined}
         versions={versions} version={version} latest={latest} pins={pins}
