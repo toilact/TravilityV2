@@ -149,10 +149,10 @@ def test_rain_replaces_every_outdoor_stop_with_indoor():
     assert "INDOOR_FOR_RAIN" in opts[0].reason_codes
     assert "(mưa)" in opts[0].itinerary.days[0].stops[0].reason
     assert opts[0].itinerary.days[0].rain_chance is None  # C1: không ghi giả định mưa
-    # phương án 2: Công viên → P11, Hồ không còn ứng viên → bỏ (C2)
-    assert [s.place_id for s in opts[1].itinerary.days[0].stops] == [11, 2]
-    assert "STOP_DROPPED" in opts[1].reason_codes
-    assert opts[1].title == "P11 · bỏ P3"
+    # phương án 2: Công viên → P11, Hồ lấy ứng viên còn trống P10 thay vì bị bỏ (fix sau review)
+    assert [s.place_id for s in opts[1].itinerary.days[0].stops] == [11, 2, 10]
+    assert "STOP_DROPPED" not in opts[1].reason_codes
+    assert opts[1].title == "P11 · P10"
 
 
 def test_rain_keeps_pinned_outdoor_stop():
@@ -241,3 +241,25 @@ def test_late_past_midnight():
     places, itin = setup([(LOST, "21:00")], pinned={1})
     with pytest.raises(InvalidDisruption, match="nửa đêm"):
         propose(TRIP, itin, places, late(minutes=240), cands())
+
+
+def test_rain_keeps_replacing_stop_that_has_only_one_candidate():
+    # review: phương án 2–3 không được bỏ Stop khi Stop đó vẫn còn chỗ thay
+    places, itin = setup([(PARK, "09:00"), (LAKE, "14:00")])
+    a = [P(i, kind="tham-quan") for i in (10, 11, 12)]
+    b0 = P(20, kind="tham-quan")
+    opts = propose(TRIP, itin, places, RAIN, lambda lost, used: a if lost.id == 1 else [b0])
+    assert len(opts) == 3
+    assert all("STOP_DROPPED" not in o.reason_codes for o in opts)
+    assert all(o.itinerary.days[0].stops[1].place_id == 20 for o in opts)
+
+
+def test_late_explains_new_missing_meal_and_pinned_conflict():
+    dinner = P(2, kind="an-uong")
+    places, itin = setup([(LOST, "09:00"), (dinner, "19:30")])
+    opts = propose(TRIP, itin, places, late(stop=1, minutes=60), cands())
+    assert "chưa có bữa tối" in opts[0].explanation
+    morning = P(2, kind="tham-quan", hours={d: ["08:00", "12:00"] for d in WEEKDAYS})
+    places, itin = setup([(LOST, "09:00"), (morning, "11:00")], pinned={2})
+    opts = propose(TRIP, itin, places, late(stop=0, minutes=60), cands())
+    assert "P2 không mở cửa lúc 12:00" in opts[0].explanation

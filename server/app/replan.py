@@ -217,13 +217,15 @@ def _title(pick: dict[Hit, Place], dropped: list[Place]) -> str:
 
 
 def _pick(ranked: dict[Hit, list[Place]], k: int, may_drop: bool) -> dict[Hit, Place] | None:
-    """Phương án k: ứng viên thứ k còn trống của từng Stop, không trùng Place. Thiếu → bỏ Stop hoặc None."""
+    """Phương án k: ứng viên thứ k còn trống của từng Stop, không trùng Place.
+    Thiếu ứng viên thứ k: closed/disliked → None; rain/late → lấy ứng viên tốt nhất còn trống, hết hẳn mới bỏ Stop."""
     taken, pick = set(), {}
     for h, cs in ranked.items():
         free = [c for c in cs if c.id not in taken]
-        if len(free) > k:
-            pick[h] = free[k]
-            taken.add(free[k].id)
+        if len(free) > k or (may_drop and free):
+            c = free[min(k, len(free) - 1)]
+            pick[h] = c
+            taken.add(c.id)
         elif not may_drop:
             return None
     return pick
@@ -260,6 +262,10 @@ def _variant(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruptio
         return "OVER_BUDGET" if any(k == "over_budget" for k, _, _ in extra) else "NEW_CONFLICT"
 
     dropped = [h.lost for h in aff.hits if h not in pick]
+    # Conflict mềm mới (vd thiếu bữa vì bỏ Stop) và Conflict trên Stop ghim không loại phương án → phải nói ra
+    old_msgs = {c.message for c in itin.conflicts}  # so theo message: missing_meal các bữa cùng (kind, day, None)
+    notes = [c.message for c in new.conflicts if c.message not in old_msgs
+             and (c.kind not in HARD or c.place_id in pinned)]
     li = set().union(*(_stop_intents(trip, h.lost) for h in pick))
     kept = set().union(*(_stop_intents(trip, h.lost) & place_intents(c.tags) for h, c in pick.items()))
     # "không còn" chỉ khi cả chuyến mất Intent đó, không phải khi Stop khác vẫn đáp ứng
@@ -295,7 +301,8 @@ def _variant(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruptio
                             for h, c in pick.items()]}
     return ProposalOption(itinerary=new, added=list(pick.values()), changed=changed, metrics=metrics,
                           reason_codes=codes, title=_title(pick, dropped),
-                          explanation=_explain(prefix, kept, lost_trip, drop_text, travel_delta, cost_delta, day_end, di))
+                          explanation=_explain(prefix, kept, lost_trip, drop_text, travel_delta, cost_delta, day_end, di)
+                          + (f" Lưu ý: {'; '.join(notes)}." if notes else ""))
 
 
 def propose(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption, candidates_fn: CandidatesFn,
