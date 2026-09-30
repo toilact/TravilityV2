@@ -191,3 +191,35 @@ def test_options_carry_title_and_added(client, conn):
     o = disrupt(client, h, tid).json()["options"][0]
     assert o["title"] == "Cafe B"
     assert [o["places"][str(i)]["name"] for i in o["added"]] == ["Cafe B"]
+
+
+def post(client, h, tid, **body):
+    return client.post(f"/trips/{tid}/disruptions", headers=h, json={"version": 1, "day_index": 0, **body})
+
+
+def test_rain_round_trip_creates_version(client, conn):
+    h, tid = seed(conn, client)
+    conn.execute("UPDATE places SET outdoor = true WHERE name = 'Bảo tàng'")
+    body = post(client, h, tid, kind="rain").json()
+    assert [o["title"] for o in body["options"]] == ["Bỏ Bảo tàng"]  # không có tham-quan trong nhà nào khác
+    r = client.post(f"/trips/{tid}/proposals/{body['proposal_id']}/apply", headers=h, json={"option": 0})
+    assert r.status_code == 200
+    assert r.json()["version"] == 2
+    assert [s["place_id"] for s in r.json()["itinerary"]["days"][0]["stops"]] == \
+        [body["options"][0]["itinerary"]["days"][0]["stops"][0]["place_id"]]
+
+
+def test_late_shift_only(client, conn):
+    h, tid = seed(conn, client)
+    body = post(client, h, tid, kind="late", stop_index=0, minutes=30).json()
+    o = body["options"][0]
+    assert o["reason_codes"] == ["LATE_SHIFT"]
+    assert [s["start_time"] for s in o["itinerary"]["days"][0]["stops"]] == ["09:30", "11:30"]
+
+
+def test_bad_rain_or_late_shape_422(client, conn):
+    h, tid = seed(conn, client)
+    assert post(client, h, tid, kind="rain", stop_index=0).status_code == 422
+    assert post(client, h, tid, kind="late", stop_index=0).status_code == 422
+    assert post(client, h, tid, kind="late", stop_index=0, minutes=300).status_code == 422
+    assert post(client, h, tid, kind="rain", day_index=5).status_code == 422
