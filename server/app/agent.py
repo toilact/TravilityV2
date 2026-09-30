@@ -241,7 +241,8 @@ def previous_brief(itin: Itinerary, places: dict[int, Place]) -> str:
         lines.append(f"- Chỗ ở: {places[itin.stay_place_id].name} (place_id {itin.stay_place_id})")
     for i, d in enumerate(itin.days):
         lines.append(f"- Ngày {i + 1}: " + "; ".join(
-            f"{s.start_time} {places[s.place_id].name} (place_id {s.place_id})" for s in d.stops))
+            f"{s.start_time} {places[s.place_id].name} (place_id {s.place_id})"
+            + (" 📌 đã ghim — BẮT BUỘC giữ" if s.pinned else "") for s in d.stops))
     return "\n".join(lines)
 
 
@@ -250,6 +251,7 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
          ) -> Iterator[dict]:
     # chỉ Place AI đã nhận từ search_places (hoặc có trong lịch cũ) mới hợp lệ
     seen: dict[int, Place] = dict(previous[1]) if previous else {}
+    pinned = {s.place_id for d in previous[0].days for s in d.stops if s.pinned} if previous else set()
     brief = trip_brief(trip, rain, hub, user_messages)
     if previous:
         brief += "\n\n" + previous_brief(*previous)
@@ -281,7 +283,7 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
                 yield ev
             elif c.function.name == "submit_itinerary":
                 try:
-                    itin = build_itinerary(trip, Draft.model_validate(args), seen, rain, hub)
+                    itin = build_itinerary(trip, Draft.model_validate(args), seen, rain, hub, pinned)
                 except (ValidationError, InvalidDraft) as e:
                     invalid += 1
                     if invalid > MAX_INVALID:

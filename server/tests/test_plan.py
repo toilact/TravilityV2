@@ -2,7 +2,9 @@ import pytest
 
 from app import rules
 from app.agent import MAX_STEPS, plan, trip_brief
-from app.domain import Hub, Trip
+from app.domain import Draft, Hub, Trip
+from app.places import get_places
+from app.rules import build_itinerary
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
 
@@ -156,3 +158,16 @@ def test_missing_meal_is_sent_back_to_ai(conn, monkeypatch):
                                 reply(("submit_itinerary", lunch))])
     assert any("chưa có bữa trưa" in m for m in tool_messages(client))
     assert events[-1]["itinerary"]["conflicts"] == []
+
+
+def test_plan_rejects_draft_dropping_pinned_place_then_retries(conn):
+    a, b = add_place(conn, name="Cafe ghim", kind="cafe"), add_place(conn, name="Hồ", vec=1)
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, travel_mode="grab")
+    places = get_places(conn, [a, b])
+    old = build_itinerary(trip, Draft.model_validate(stops(a)), places)
+    old.days[0].stops[0].pinned = True
+    client = FakeClient([reply(("submit_itinerary", stops(b))), reply(("submit_itinerary", stops(a, b)))])
+    events = list(plan(conn, client, "m", trip, fake_embed, None, previous=(old, places)))
+    assert "Thiếu Place đã ghim" in tool_messages(client)[0]
+    assert [s["place_id"] for s in events[-1]["itinerary"]["days"][0]["stops"]] == [a, b]
+    assert "đã ghim" in client.calls[0]["messages"][1]["content"]

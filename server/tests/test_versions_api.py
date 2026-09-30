@@ -61,3 +61,20 @@ def test_get_trip_without_itinerary(client, conn, monkeypatch):
 def test_pins_other_user_404(client, conn, monkeypatch):
     h, tid, pid = trip_with_itinerary(client, conn, monkeypatch)
     assert pin(client, auth(client, "binh@example.com"), tid, pid).status_code == 404
+
+
+def test_replan_keeps_pinned_place(client, conn, monkeypatch):
+    h, tid, pid = trip_with_itinerary(client, conn, monkeypatch)
+    pin(client, h, tid, pid)
+    other = add_place(conn, name="Hồ", vec=1)
+    use_llm(monkeypatch, [reply(("search_places", {"query": "hồ"})),
+                          reply(("submit_itinerary", {"summary": "không ghim", "days": [{"stops": [
+                              {"place_id": other, "start_time": "09:00", "duration_min": 60}]}]})),
+                          reply(("submit_itinerary", {"summary": "có ghim", "days": [{"stops": [
+                              {"place_id": pid, "start_time": "09:00", "duration_min": 60},
+                              {"place_id": other, "start_time": "11:00", "duration_min": 60}]}]}))])
+    evs = events(client.post(f"/trips/{tid}/replan", headers=h,
+                             json={"changes": {"budget": 3_000_000}, "message": "3 triệu"}))
+    assert evs[-1]["type"] == "itinerary" and evs[-1]["itinerary"]["summary"] == "có ghim"
+    got = client.get(f"/trips/{tid}", headers=h).json()
+    assert got["itinerary"]["days"][0]["stops"][0]["pinned"] is True
