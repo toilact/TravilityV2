@@ -40,6 +40,12 @@ export default function App() {
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
+  // Định nghĩa hàm logout để xóa token trong state và localStorage
+  function logout() {
+    saveToken(null)
+    setToken(null)
+  }
+
   const add = (item: ChatItem) => setChat((c) => [...c, item])
 
   function handle(e: AgentEvent) {
@@ -119,7 +125,13 @@ export default function App() {
 
   return (
     <div className="grid h-screen grid-cols-[22rem_1fr_24rem] bg-stone-50 text-stone-900">
-      <ChatPanel items={chat} busy={busy} onSend={send} onNewTrip={tripId != null ? newTrip : undefined}>
+      <ChatPanel
+        items={chat}
+        busy={busy}
+        onSend={send}
+        onNewTrip={tripId != null ? newTrip : undefined}
+        onLogout={logout} // Truyền hàm logout xuống ChatPanel
+      >
         {clarify && <ClarifyCard questions={clarify.questions} busy={busy}
           onSubmit={(a) => answer(clarify.tripId, a)} />}
         {confirm && <ConfirmCard text={confirm.text} busy={busy}
