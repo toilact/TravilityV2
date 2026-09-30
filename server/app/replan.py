@@ -103,7 +103,13 @@ def _affected(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disrupti
                                          and d.stop_index >= len(itin.days[d.day_index].stops)):
         raise InvalidDisruption("Không tìm thấy Stop này trong lịch trình")
     base = to_draft(itin)
-    stop = itin.days[d.day_index].stops[d.stop_index]
+    day = itin.days[d.day_index]
+    if d.kind == "rain":
+        outdoor = [(si, s) for si, s in enumerate(day.stops) if places[s.place_id].outdoor]
+        hits = [Hit(d.day_index, si, places[s.place_id], "replace") for si, s in outdoor if not s.pinned]
+        codes = ["PINNED_CONFLICT"] if any(s.pinned for _, s in outdoor) else []
+        return Affected(base, hits, codes, set())
+    stop = day.stops[d.stop_index]
     if stop.pinned:
         raise InvalidDisruption("Stop đã ghim — bỏ ghim để đổi")
     return Affected(base, [Hit(d.day_index, d.stop_index, places[stop.place_id], "replace")], [], set())
@@ -111,6 +117,9 @@ def _affected(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disrupti
 
 def _reject(trip: Trip, stops: list[DraftStop], weekdays: list[str], si: int, lost: Place, cand: Place,
             prev: Point, nxt: Point, indoor: bool = False) -> str | None:
+    if indoor and cand.outdoor:
+        # ponytail: lọc sau similar_places (top 20 theo embedding); dữ liệu lớn thì thêm tham số indoor cho truy vấn
+        return "NO_INDOOR_CANDIDATE"
     stop = stops[si]
     if not any(is_open(cand, w, stop.start_time, stop.duration_min) for w in weekdays):
         return "NO_OPEN_CANDIDATE"
@@ -264,6 +273,8 @@ def _variant(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruptio
 def propose(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption, candidates_fn: CandidatesFn,
             hub: Hub | None = None, score_fn=score) -> list[ProposalOption] | NoFeasible:
     aff = _affected(trip, itin, places, d)
+    if d.kind == "rain" and not aff.hits:
+        return NoFeasible(reason_codes=["NOTHING_OUTDOOR"])
     used = {s.place_id for x in itin.days for s in x.stops}
     if itin.stay_place_id is not None:
         used.add(itin.stay_place_id)

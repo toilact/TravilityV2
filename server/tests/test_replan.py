@@ -9,9 +9,9 @@ TRIP = Trip(destination="da-lat", days=1, budget=5_000_000, travel_mode="grab",
             preferred_tags=["cafe-chill", "lich-su"])
 
 
-def P(id, kind="cafe", tags=(), price=0, lat=11.94, hours=None):
+def P(id, kind="cafe", tags=(), price=0, lat=11.94, hours=None, outdoor=False):
     return Place(id=id, destination="da-lat", name=f"P{id}", kind=kind, lat=lat, lon=108.44, price=price,
-                 open_hours=WEEK if hours is None else hours, outdoor=False, tags=list(tags))
+                 open_hours=WEEK if hours is None else hours, outdoor=outdoor, tags=list(tags))
 
 
 def setup(stops, trip=TRIP, pinned=()):
@@ -130,3 +130,49 @@ def test_option_title_is_new_place_name():
     places, itin = setup([(LOST, "09:00")])
     opts = propose(TRIP, itin, places, closed(), cands(P(10)))
     assert opts[0].title == "P10"
+
+
+RAIN = Disruption(kind="rain", day_index=0)
+PARK, LAKE = P(1, kind="tham-quan", outdoor=True), P(3, kind="tham-quan", outdoor=True)
+CAFE = P(2)
+
+
+def test_rain_replaces_every_outdoor_stop_with_indoor():
+    places, itin = setup([(PARK, "09:00"), (CAFE, "11:00"), (LAKE, "14:00")])
+    a, b = P(10, kind="tham-quan"), P(11, kind="tham-quan")
+    opts = propose(TRIP, itin, places, RAIN, cands(P(12, kind="tham-quan", outdoor=True), a, b))
+    for o in opts:
+        assert all(not (places | {p.id: p for p in o.added})[s.place_id].outdoor
+                   for s in o.itinerary.days[0].stops)
+    assert [s.place_id for s in opts[0].itinerary.days[0].stops] == [10, 2, 11]
+    assert opts[0].changed == [(0, 0), (0, 2)]
+    assert "INDOOR_FOR_RAIN" in opts[0].reason_codes
+    assert "(mưa)" in opts[0].itinerary.days[0].stops[0].reason
+    assert opts[0].itinerary.days[0].rain_chance is None  # C1: không ghi giả định mưa
+    # phương án 2: Công viên → P11, Hồ không còn ứng viên → bỏ (C2)
+    assert [s.place_id for s in opts[1].itinerary.days[0].stops] == [11, 2]
+    assert "STOP_DROPPED" in opts[1].reason_codes
+    assert opts[1].title == "P11 · bỏ P3"
+
+
+def test_rain_keeps_pinned_outdoor_stop():
+    places, itin = setup([(PARK, "09:00"), (LAKE, "14:00")], pinned={1})
+    opts = propose(TRIP, itin, places, RAIN, cands(P(10, kind="tham-quan")))
+    assert opts[0].itinerary.days[0].stops[0].place_id == 1
+    assert opts[0].itinerary.days[0].stops[1].place_id == 10
+    assert opts[0].reason_codes[0] == "PINNED_CONFLICT"
+
+
+def test_rain_nothing_outdoor():
+    places, itin = setup([(CAFE, "09:00")])
+    assert propose(TRIP, itin, places, RAIN, cands(P(10))) == NoFeasible(reason_codes=["NOTHING_OUTDOOR"])
+
+
+def test_rain_without_indoor_candidate_drops_stop_even_if_day_empties():
+    places, itin = setup([(PARK, "09:00")])
+    opts = propose(TRIP, itin, places, RAIN, cands(P(12, kind="tham-quan", outdoor=True)))
+    assert len(opts) == 1
+    assert opts[0].itinerary.days[0].stops == []
+    assert opts[0].title == "Bỏ P1"
+    assert opts[0].explanation.startswith("Bỏ P1 (không có chỗ trong nhà phù hợp)")  # phần đầu câu được viết hoa
+    assert opts[0].metrics["day_end_after"] == "—"
