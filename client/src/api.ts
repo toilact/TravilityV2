@@ -131,7 +131,8 @@ export const streamPlan = (token: string, tripId: number, answers: Answers, onEv
 export const streamReplan = (token: string, c: ConfirmReplan, onEvent: (e: AgentEvent) => void) =>
   streamSSE(token, `/trips/${c.tripId}/replan`, { changes: c.changes, message: c.message }, onEvent)
 
-export type DisruptionKind = 'closed' | 'disliked'
+export type DisruptionKind = 'closed' | 'disliked' | 'rain' | 'late'
+export type DisruptionReq = { kind: DisruptionKind; day_index: number; stop_index?: number; minutes?: number }
 export type ItineraryEvent = Extract<AgentEvent, { type: 'itinerary' }>
 export type ProposalOption = {
   itinerary: Itinerary; places: Record<string, Place>; changed: [number, number][]
@@ -139,7 +140,7 @@ export type ProposalOption = {
     cost_delta: number; travel_min_delta: number; day_end_after: string; retention_after: number | null
     intents_kept: string[]; intents_lost: string[]
   }
-  reason_codes: string[]; explanation: string
+  reason_codes: string[]; explanation: string; title: string; added: number[]
 }
 export type Proposal = { proposal_id: number; options?: ProposalOption[]; no_feasible?: string[] }
 
@@ -155,10 +156,8 @@ async function request<T>(token: string, path: string, method = 'GET', body?: un
   return data as T
 }
 
-export const reportDisruption = (token: string, tripId: number, version: number, kind: DisruptionKind,
-  dayIndex: number, stopIndex: number) =>
-  request<Proposal>(token, `/trips/${tripId}/disruptions`, 'POST',
-    { version, kind, day_index: dayIndex, stop_index: stopIndex })
+export const reportDisruption = (token: string, tripId: number, version: number, d: DisruptionReq) =>
+  request<Proposal>(token, `/trips/${tripId}/disruptions`, 'POST', { version, ...d })
 
 export const applyProposal = (token: string, tripId: number, proposalId: number, option: number) =>
   request<ItineraryEvent>(token, `/trips/${tripId}/proposals/${proposalId}/apply`, 'POST', { option })
@@ -169,13 +168,16 @@ const NO_FEASIBLE_TEXT: Record<string, string> = {
   NOT_REACHABLE_IN_TIME: 'Các Place tương tự quá xa, không kịp giờ Stop kế tiếp.',
   OVER_BUDGET: 'Thay thế sẽ vượt Budget.',
   NEW_CONFLICT: 'Thay thế sẽ làm lịch trình phát sinh xung đột mới.',
+  NOTHING_OUTDOOR: 'Ngày này không có Stop ngoài trời nào cần đổi.',
+  NO_INDOOR_CANDIDATE: 'Không có Place trong nhà nào thay được.',
 }
 export const noFeasibleText = (codes: string[]) => codes.map((c) => NO_FEASIBLE_TEXT[c] ?? c)
 
-export function optionPlace(o: ProposalOption): Place | undefined {
-  const [d, s] = o.changed[0]
-  return o.places[o.itinerary.days[d].stops[s].place_id]
-}
+export const optionPlaces = (o: ProposalOption): Place[] =>
+  o.added.map((id) => o.places[id]).filter((p): p is Place => p !== undefined)
+
+export const rainable = (day: Day, places: Record<string, Place>, pins: number[]) =>
+  day.stops.some((s) => places[s.place_id]?.outdoor && !pins.includes(s.place_id))
 
 export const signed = (n: number, unit: (x: number) => string) =>
   n === 0 ? 'như cũ' : (n > 0 ? '+' : '−') + unit(Math.abs(n))

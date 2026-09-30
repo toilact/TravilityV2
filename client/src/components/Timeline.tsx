@@ -1,12 +1,12 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { intentChips, mealOf, viewingOld, vnd, type DisruptionKind, type Itinerary, type Place } from '../api'
+import { intentChips, mealOf, rainable, viewingOld, vnd, type DisruptionReq, type Itinerary, type Place } from '../api'
 import type { Selected } from '../place'
 import PlaceThumb from './PlaceThumb'
 
 export default function Timeline({ itinerary, places, budget, busy = false, changed = [], onDisrupt,
   versions = [], version = null, latest = null, pins = [], onView, onRestore, onPin, selected = null, onSelect, children }: {
   itinerary: Itinerary | null; places: Record<string, Place>; budget: number | null; changed?: [number, number][]
-  busy?: boolean; onDisrupt?: (kind: DisruptionKind, dayIndex: number, stopIndex: number) => void
+  busy?: boolean; onDisrupt?: (d: DisruptionReq) => void
   versions?: number[]; version?: number | null; latest?: number | null; pins?: number[]
   onView?: (v: number) => void; onRestore?: () => void; onPin?: (placeId: number, pinned: boolean) => void
   selected?: Selected; onSelect?: (s: Selected) => void
@@ -75,9 +75,17 @@ export default function Timeline({ itinerary, places, budget, busy = false, chan
       )}
       {itinerary.days.map((day, i) => (
         <section key={i} className="mb-4">
-          <h2 className="mb-2 font-semibold">
-            Ngày {i + 1}{day.date && ` · ${day.date}`}{day.rain_chance != null && ` · mưa ${day.rain_chance}%`}
-          </h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="font-semibold">
+              Ngày {i + 1}{day.date && ` · ${day.date}`}{day.rain_chance != null && ` · mưa ${day.rain_chance}%`}
+            </h2>
+            {!old && onDisrupt && rainable(day, places, pins) && (
+              <button type="button" disabled={busy} onClick={() => onDisrupt({ kind: 'rain', day_index: i })}
+                className="rounded border border-sky-300 px-2 py-0.5 text-xs text-sky-800 hover:bg-sky-50 disabled:opacity-40">
+                ☂ Giả sử mưa
+              </button>
+            )}
+          </div>
           <ol className="space-y-2">
             {day.stops.map((s, j) => {
               const p = places[s.place_id]
@@ -115,11 +123,23 @@ export default function Timeline({ itinerary, places, budget, busy = false, chan
                       {onDisrupt && on && (['closed', 'disliked'] as const).map((k) => (
                         <button key={k} type="button" disabled={busy || pinned}
                           title={pinned ? 'Bỏ ghim để đổi' : undefined}
-                          onClick={() => onDisrupt(k, i, j)}
+                          onClick={() => onDisrupt({ kind: k, day_index: i, stop_index: j })}
                           className="rounded border border-stone-300 px-2 py-0.5 hover:bg-stone-100 disabled:opacity-40">
                           {k === 'closed' ? 'Báo đóng cửa' : 'Đổi chỗ khác'}
                         </button>
                       ))}
+                      {onDisrupt && on && (
+                        <span className="flex items-center gap-1">
+                          Tôi trễ
+                          {[15, 30, 60].map((m) => (
+                            <button key={m} type="button" disabled={busy}
+                              onClick={() => onDisrupt({ kind: 'late', day_index: i, stop_index: j, minutes: m })}
+                              className="rounded border border-stone-300 px-1.5 py-0.5 hover:bg-stone-100 disabled:opacity-40">
+                              {m}′
+                            </button>
+                          ))}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

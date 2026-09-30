@@ -1,4 +1,4 @@
-import { noFeasibleText, optionPlace, signed, vnd, type Proposal } from '../api'
+import { noFeasibleText, signed, vnd, type Proposal } from '../api'
 
 export default function ProposalPanel({ proposal, busy, onApply, onClose }: {
   proposal: Proposal; busy: boolean; onApply: (option: number) => void; onClose: () => void
@@ -19,7 +19,7 @@ export default function ProposalPanel({ proposal, busy, onApply, onClose }: {
           const m = o.metrics
           return (
             <li key={i} className="rounded-lg bg-white p-3 shadow-sm">
-              <div className="font-medium">{i + 1}. {optionPlace(o)?.name}</div>
+              <div className="font-medium">{i + 1}. {o.title}</div>
               <p className="mt-1 text-xs text-stone-600">{o.explanation}</p>
               <dl className="mt-2 grid grid-cols-3 gap-1 text-xs">
                 <div><dt className="text-stone-500">Chi phí</dt><dd>{signed(m.cost_delta, vnd)}</dd></div>

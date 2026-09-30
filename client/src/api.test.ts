@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlace, signed, toAnswers, tripLabel,
+  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, signed, toAnswers, tripLabel,
   viewingOld, vnd,
-  type AgentEvent, type Itinerary, type ProposalOption,
+  type AgentEvent, type Day, type Itinerary, type Place, type ProposalOption,
 } from './api'
 
 describe('toAnswers', () => {
@@ -56,15 +56,22 @@ describe('noFeasibleText', () => {
   })
 })
 
-describe('optionPlace', () => {
-  it('lấy Place mới ở vị trí Stop đã đổi', () => {
-    const o = {
-      changed: [[0, 1]],
-      itinerary: { days: [{ stops: [{ place_id: 1 }, { place_id: 7 }] }] },
-      places: { '1': { id: 1, name: 'Cũ' }, '7': { id: 7, name: 'Mới' } },
-    } as unknown as ProposalOption
-    expect(optionPlace(o)?.name).toBe('Mới')
+describe('optionPlaces', () => {
+  it('lấy các Place mới theo added', () => {
+    const o = { added: [7], places: { '1': { id: 1, name: 'Cũ' }, '7': { id: 7, name: 'Mới' } } } as unknown as ProposalOption
+    expect(optionPlaces(o).map((p) => p.name)).toEqual(['Mới'])
   })
+})
+
+describe('rainable', () => {
+  const places = { '1': { outdoor: true }, '2': { outdoor: false } } as unknown as Record<string, Place>
+  const day = { stops: [{ place_id: 1 }, { place_id: 2 }] } as unknown as Day
+  it('có Stop ngoài trời chưa ghim', () => expect(rainable(day, places, [])).toBe(true))
+  it('Stop ngoài trời đã ghim hết', () => expect(rainable(day, places, [1])).toBe(false))
+})
+
+it('noFeasibleText có mã mưa', () => {
+  expect(noFeasibleText(['NOTHING_OUTDOOR'])).toEqual(['Ngày này không có Stop ngoài trời nào cần đổi.'])
 })
 
 describe('signed', () => {
