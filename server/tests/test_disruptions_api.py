@@ -166,3 +166,11 @@ def test_apply_logs_message(client, conn):
     rows = conn.execute("SELECT role, text, version FROM messages WHERE trip_id = %s", (tid,)).fetchall()
     assert [(r["role"], r["version"]) for r in rows] == [("ai", 2)]
     assert "bản 2" in rows[0]["text"]
+
+
+def test_apply_old_proposal_after_restore_is_409(client, conn):
+    h, tid = seed(conn, client)
+    pid = disrupt(client, h, tid).json()["proposal_id"]
+    assert client.post(f"/trips/{tid}/restore/1", headers=h).json()["version"] == 2
+    r = client.post(f"/trips/{tid}/proposals/{pid}/apply", headers=h, json={"option": 0})
+    assert r.status_code == 409

@@ -4,7 +4,12 @@ from pydantic import BaseModel
 
 from app.auth import current_user
 from app.db import get_conn
-from app.trips import latest_itinerary
+from app.agent import itinerary_event
+from app.domain import Trip
+from app.places import get_places, list_destinations
+from app.replan import to_draft
+from app.rules import InvalidDraft, build_itinerary
+from app.trips import hub_for, itinerary_places, latest_itinerary, load_itinerary, log_message, save_itinerary
 
 router = APIRouter()
 
@@ -42,3 +47,34 @@ def get_messages(trip_id: int, user_id: int = Depends(current_user), conn=Depend
     _own(conn, trip_id, user_id)
     return conn.execute("SELECT role, text, version, created_at FROM messages WHERE trip_id = %s ORDER BY id",
                         (trip_id,)).fetchall()
+
+
+@router.post("/trips/{trip_id}/restore/{version}")
+def restore(trip_id: int, version: int, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+    """Chép bản cũ thành bản mới, tính lại tiền + Conflict theo Trip hiện tại (spec §2 D3–D5)."""
+    row = _own(conn, trip_id, user_id)
+    old = load_itinerary(conn, trip_id, version)
+    if not old:
+        raise HTTPException(404, "Không tìm thấy phiên bản lịch trình")
+    trip, itin = Trip.model_validate(row["spec"]), old[1]
+    if len(itin.days) != trip.days:
+        raise HTTPException(422, f"Bản {version} có {len(itin.days)} ngày nhưng chuyến đi hiện là {trip.days} ngày "
+                                 "— hãy đổi lại số ngày trước khi quay lại bản này.")
+    places = itinerary_places(conn, itin)
+    used = {s.place_id for d in itin.days for s in d.stops}
+    pins = [p for p in row["pinned_place_ids"] if p in used]
+    dropped = get_places(conn, [p for p in row["pinned_place_ids"] if p not in used])
+    dest = next(d for d in list_destinations(conn) if d["slug"] == trip.destination)
+    try:
+        new = build_itinerary(trip, to_draft(itin), places, [d.rain_chance for d in itin.days], hub_for(dest, trip))
+    except InvalidDraft as e:  # vd Place trong bản cũ đã bị xoá khỏi dữ liệu
+        raise HTTPException(422, f"Không quay lại được bản {version}: {e}") from None
+    ev = itinerary_event(new, places)
+    with conn.transaction():
+        conn.execute("UPDATE trips SET pinned_place_ids = %s WHERE id = %s", (pins, trip_id))
+        n = save_itinerary(conn, trip_id, ev["itinerary"], ev["places"])
+        text = f"Đã quay lại bản {version} (thành bản {n})."
+        if dropped:
+            text += " Bỏ ghim: " + ", ".join(p.name for p in dropped.values()) + "."
+        log_message(conn, trip_id, "ai", text, n)
+    return {**ev, "trip_id": trip_id, "version": n, "pinned_place_ids": pins}

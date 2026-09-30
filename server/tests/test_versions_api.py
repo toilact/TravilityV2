@@ -101,3 +101,42 @@ def test_messages_record_conversation_in_order(client, conn, monkeypatch):
 def test_messages_other_user_404(client, conn, monkeypatch):
     h, tid, _ = trip_with_itinerary(client, conn, monkeypatch)
     assert client.get(f"/trips/{tid}/messages", headers=auth(client, "binh@example.com")).status_code == 404
+
+
+def two_versions(client, conn, monkeypatch):
+    """v1: Cà phê Tùng · v2: Cafe rẻ."""
+    h, tid, pid = trip_with_itinerary(client, conn, monkeypatch)
+    other = add_place(conn, name="Cafe rẻ", kind="cafe")
+    use_llm(monkeypatch, [reply(("search_places", {"query": "cafe rẻ"})),
+                          reply(("edit_itinerary", {"summary": "rẻ", "ops": [
+                              {"op": "replace_stop", "day": 1, "stop": 1, "place_id": other}]}))])
+    events(client.post("/trips", json={"message": "rẻ hơn", "trip_id": tid}, headers=h))
+    return h, tid, pid, other
+
+
+def test_restore_creates_new_version_and_keeps_all(client, conn, monkeypatch):
+    h, tid, pid, other = two_versions(client, conn, monkeypatch)
+    pin(client, h, tid, other)
+    r = client.post(f"/trips/{tid}/restore/1", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["type"] == "itinerary" and body["version"] == 3
+    assert body["itinerary"]["days"][0]["stops"][0]["place_id"] == pid
+    assert body["pinned_place_ids"] == []  # Place ghim không có trong v1 → tự bỏ ghim
+    assert client.get(f"/trips/{tid}", headers=h).json()["versions"] == [1, 2, 3]
+    last = client.get(f"/trips/{tid}/messages", headers=h).json()[-1]
+    assert (last["role"], last["version"]) == ("ai", 3)
+    assert "bản 1" in last["text"] and "Cafe rẻ" in last["text"]
+
+
+def test_restore_missing_version_404_other_user_404(client, conn, monkeypatch):
+    h, tid, _ = trip_with_itinerary(client, conn, monkeypatch)
+    assert client.post(f"/trips/{tid}/restore/9", headers=h).status_code == 404
+    assert client.post(f"/trips/{tid}/restore/1", headers=auth(client, "binh@example.com")).status_code == 404
+
+
+def test_restore_with_different_day_count_is_422(client, conn, monkeypatch):
+    h, tid, _ = trip_with_itinerary(client, conn, monkeypatch)
+    conn.execute("UPDATE trips SET spec = jsonb_set(spec, '{days}', '2') WHERE id = %s", (tid,))
+    r = client.post(f"/trips/{tid}/restore/1", headers=h)
+    assert r.status_code == 422 and "1 ngày" in r.json()["detail"]
