@@ -1,2 +1,12 @@
 @import "tailwindcss";
 @import "maplibre-gl/dist/maplibre-gl.css";
+
+@theme {
+  --font-sans: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-pine: #1f4d3a;
+  --color-pine-soft: #e3ece5;
+  --color-marigold: #e0a21b;
+  --color-mist: #f3f5f1;
+}
+
+.place-popup .maplibregl-popup-content { padding: 0; border-radius: 0.75rem; overflow: hidden; }
