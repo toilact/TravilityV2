@@ -47,7 +47,7 @@ export default function MapView({ center, searchPins, itinerary, places, selecte
     if (pts.length === 0) return
     const lons = pts.map((p) => p.lon), lats = pts.map((p) => p.lat)
     map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-      { padding: { top: 60, bottom: 110, ...padding }, maxZoom: 15, pitch: 45, bearing: 0, duration: dur(1200) })
+      { padding: { top: 60, bottom: 110, ...padding }, maxZoom: 15, pitch: 0, bearing: 0, duration: dur(1200) })  // pitch > 0 làm lệch khung: Stop xa bị khuất sau panel
   }
 
   useEffect(() => {
