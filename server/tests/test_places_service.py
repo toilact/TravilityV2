@@ -2,7 +2,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import llm, places_client, places_service, trips
+from app import distance, llm, places_client, places_service, trips
 from app.config import settings
 from tests.helpers import add_place, unit_vec
 from tests.test_trips_api import auth, client, events, happy, no_meal_rule, use_llm  # noqa: F401 (fixture)
@@ -98,3 +98,13 @@ def test_plan_through_service_then_places_dies(conn, client, svc, monkeypatch):
     use_llm(monkeypatch, happy(1))  # lượt mới: đọc yêu cầu xong, tới lượt tìm Place thì places đã chết
     evs = events(client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=h))
     assert evs[-1] == {"type": "error", "message": places_client.PLACES_DOWN}
+
+
+def test_distance_endpoint_returns_matrix(monkeypatch):
+    def goong(origins, destinations, mode, client=None):
+        distance._cache[distance._key(origins[0], destinations[0], "bike")] = (1.5, 4)
+    monkeypatch.setattr(distance, "goong", goong)
+    r = TestClient(places_service.app).post("/distance", json={
+        "origins": [{"lat": 1, "lon": 2}], "destinations": [{"lat": 3, "lon": 4}, {"lat": 5, "lon": 6}],
+        "mode": "xe-may"})
+    assert r.json() == {"rows": [[[1.5, 4], None]]}

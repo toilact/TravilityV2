@@ -1,7 +1,9 @@
+import json
+
 import httpx
 import pytest
 
-from app import distance
+from app import distance, places_client
 from app.config import settings
 from app.domain import Hub
 
@@ -78,3 +80,34 @@ def test_km_shared_through_redis(rds):
     assert calls == []  # đã có trong Redis → không gọi Goong
     assert distance.lookup(A, B, "xe-may") == (2.34, 7)
     assert rds.ttl("goong:11.94:108.44:11.95:108.44:bike") == -1
+
+
+def via_places(monkeypatch, handler):
+    monkeypatch.setattr(settings, "places_url", "http://places")
+    monkeypatch.setattr(places_client, "_http", httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def test_prefetch_asks_places_service(monkeypatch):
+    sent = []
+
+    def places(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={"rows": [[[1.5, 4], None]]})
+    via_places(monkeypatch, places)
+    distance.prefetch([A], [B, C], "xe-may")
+    assert distance.lookup(A, B, "xe-may") == (1.5, 4)
+    assert distance.lookup(A, C, "xe-may") is None
+    pt = lambda p: {"lat": p.lat, "lon": p.lon}  # noqa: E731
+    assert sent == [{"origins": [pt(A)], "destinations": [pt(B), pt(C)], "mode": "xe-may"}]
+
+
+def test_places_down_cools_down(monkeypatch):
+    calls = []
+
+    def refuse(request):
+        calls.append(1)
+        raise httpx.ConnectError("x", request=request)
+    via_places(monkeypatch, refuse)
+    distance.prefetch([A], [B], "xe-may")
+    distance.prefetch([A], [B], "xe-may")
+    assert distance.lookup(A, B, "xe-may") is None and len(calls) == 1

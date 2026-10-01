@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-from app import kv
+from app import kv, places_client
 from app.config import settings
 
 URL = "https://rsapi.goong.io/DistanceMatrix"
@@ -33,6 +33,34 @@ def lookup(a, b, mode: str) -> tuple[float, int] | None:
 
 
 def prefetch(origins: list, destinations: list, mode: str, client: httpx.Client | None = None) -> None:
+    """Lấy km/phút thật cho mọi cặp origins × destinations vào cache của lookup().
+
+    Có PLACES_URL → nhờ service places gọi Goong (spec scale §8); không thì gọi Goong ngay trong tiến trình.
+    """
+    if settings.places_url:
+        _via_places(origins, destinations, mode)
+    else:
+        goong(origins, destinations, mode, client)
+
+
+def _via_places(origins: list, destinations: list, mode: str) -> None:
+    global _down_until
+    if time.monotonic() < _down_until or all(lookup(a, b, mode) is not None for a in origins for b in destinations):
+        return
+    vehicle = VEHICLE.get(mode, "bike")
+    try:
+        rows = places_client.call("POST", "/distance", json={
+            "origins": [{"lat": p.lat, "lon": p.lon} for p in origins],
+            "destinations": [{"lat": p.lat, "lon": p.lon} for p in destinations], "mode": mode})["rows"]
+        for a, row in zip(origins, rows):
+            for b, v in zip(destinations, row):
+                if v:
+                    _cache[_key(a, b, vehicle)] = (v[0], v[1])
+    except (places_client.PlacesDown, KeyError, TypeError, IndexError):
+        _down_until = time.monotonic() + COOLDOWN_S  # places chết: make_leg dùng chim bay × 1.3 như khi Goong lỗi
+
+
+def goong(origins: list, destinations: list, mode: str, client: httpx.Client | None = None) -> None:
     """Một request Goong Distance Matrix cho mọi cặp origins × destinations, ghi vào cache cho lookup()."""
     global _down_until
     vehicle = VEHICLE.get(mode, "bike")
