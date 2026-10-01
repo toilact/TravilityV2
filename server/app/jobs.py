@@ -2,8 +2,10 @@
 
 Phía worker ở app/worker.py.
 """
+import json
 import math
 import time
+import uuid
 
 from fastapi import HTTPException
 from redis.exceptions import RedisError
@@ -12,6 +14,9 @@ from app import kv
 from app.config import settings
 
 _now = time.time  # test thay bằng đồng hồ giả
+STREAM, GROUP = "jobs", "planners"
+TTL_S = 3600  # events:{job_id} và các khoá job:{job_id}:* sống bấy nhiêu giây
+QUIET_S = 120  # chờ event mới tối đa bấy nhiêu giây rồi báo lỗi (không có planner nào chạy)
 
 
 def check_rate(user_id: int) -> None:
@@ -33,3 +38,62 @@ def check_rate(user_id: int) -> None:
     wait = max(1, math.ceil(60 - now % 60))
     raise HTTPException(429, f"Bạn gửi yêu cầu quá nhanh, chờ {wait} giây rồi thử lại nhé.",
                         headers={"Retry-After": str(wait)})
+
+
+def _error(message: str) -> str:
+    return f"data: {json.dumps({'type': 'error', 'message': message}, ensure_ascii=False)}\n\n"
+
+
+def enqueue(kind: str, user_id: int, params: dict) -> str:
+    """Đẩy một việc vào stream; trả job_id. Redis lỗi → 503 (spec §10: redis chết thì không lập lịch được)."""
+    job_id = uuid.uuid4().hex
+    try:
+        c = kv.client()
+        c.set(f"job:{job_id}:user", user_id, ex=TTL_S)
+        c.xadd(STREAM, {"job_id": job_id, "kind": kind, "user_id": user_id,
+                        "params": json.dumps(params, ensure_ascii=False)}, maxlen=1000, approximate=True)
+    except RedisError:
+        raise HTTPException(503, "Hệ thống lập lịch tạm không dùng được, bạn thử lại sau nhé.") from None
+    return job_id
+
+
+def owner(job_id: str) -> int | None:
+    v = kv.get(f"job:{job_id}:user")
+    return int(v) if v else None
+
+
+def _add(job_id: str, fields: dict) -> None:
+    c, key = kv.client(), f"events:{job_id}"
+    c.xadd(key, fields)
+    c.expire(key, TTL_S)
+
+
+def publish(job_id: str, data: str) -> None:
+    """Worker ghi một event (chuỗi SSE hoàn chỉnh) cho việc."""
+    _add(job_id, {"data": data})
+
+
+def finish(job_id: str) -> None:
+    """Worker đánh dấu việc đã xong: relay dừng ở đây."""
+    _add(job_id, {"end": "1"})
+
+
+def relay(job_id: str):
+    """Phát lại events:{job_id} từ đầu dưới dạng SSE, tới khi gặp mục end. Bản api nào cũng đọc được."""
+    c, key, last, quiet_since = kv.client(), f"events:{job_id}", "0", _now()
+    while True:
+        try:
+            got = c.xread({key: last}, block=500, count=100)
+        except RedisError:
+            yield _error("Mất kết nối tới hệ thống lập lịch, bạn mở lại chuyến đi sau ít phút nhé.")
+            return
+        for _, entries in got or []:
+            for entry_id, fields in entries:
+                if "end" in fields:
+                    return
+                yield fields["data"]
+                last = entry_id
+            quiet_since = _now()
+        if _now() - quiet_since > QUIET_S:
+            yield _error("Hệ thống lập lịch đang bận hoặc chưa chạy, bạn thử lại sau nhé.")
+            return
