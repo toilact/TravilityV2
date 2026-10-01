@@ -28,3 +28,29 @@ class FakeClient:
         if isinstance(r, Exception):
             raise r
         return r
+
+
+class RoleClient:
+    """LLM giả cho đa agent: mỗi kịch bản một hàng đợi riêng, chọn theo đoạn chữ có trong system prompt.
+
+    Các chuyên gia chạy song song nên một hàng đợi chung (FakeClient) sẽ trả nhầm lượt.
+    Phần tử là hàm thì được gọi lấy kết quả (dùng để ngủ hoặc ném lỗi muộn).
+    """
+
+    def __init__(self, scripts: dict[str, list]):
+        self.scripts = {k: list(v) for k, v in scripts.items()}
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        system = kwargs["messages"][0]["content"]
+        r = self.scripts[next(k for k in self.scripts if k in system)].pop(0)
+        if callable(r):
+            r = r()
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    def calls_for(self, key: str) -> list[dict]:
+        return [c for c in self.calls if key in c["messages"][0]["content"]]
