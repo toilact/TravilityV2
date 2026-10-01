@@ -13,6 +13,16 @@ services:
       test: ["CMD-SHELL", "pg_isready -U travility"]
       interval: 2s
       retries: 30
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
   api:
     build: ./server
     env_file: ./server/.env
@@ -24,3 +34,4 @@ services:
         condition: service_healthy
 volumes:
   pgdata: {}
+  redisdata: {}
