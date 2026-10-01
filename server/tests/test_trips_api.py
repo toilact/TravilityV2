@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import forecast, jobs, kv, llm, multi, rules, trips, worker
+from app.auth import get_shard
 from app.config import settings
 from app.db import get_conn
 from app.domain import Trip
@@ -27,7 +28,8 @@ def no_meal_rule(monkeypatch):
 @pytest.fixture
 def client(conn, monkeypatch):
     app.dependency_overrides[get_conn] = lambda: conn
-    monkeypatch.setattr(trips, "stream_conn", lambda: nullcontext(conn))
+    app.dependency_overrides[get_shard] = lambda: conn
+    monkeypatch.setattr(trips, "stream_conn", lambda *_: nullcontext(conn))
     monkeypatch.setattr(llm, "embed", lambda texts: [unit_vec(0) for _ in texts])
     monkeypatch.setattr(forecast, "get_rain_chance", lambda *a, **k: None)
     yield TestClient(app)

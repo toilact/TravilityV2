@@ -5,8 +5,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 from app.agent import itinerary_event
-from app.auth import current_user
-from app.db import get_conn
+from app.auth import current_user, get_shard
 from app.domain import Disruption, Trip
 from app.places_client import get_places, list_destinations, similar_places
 from app.replan import InvalidDisruption, NoFeasible, propose
@@ -37,7 +36,7 @@ def _latest_version(conn, trip_id: int) -> int | None:
 
 @router.post("/trips/{trip_id}/disruptions")
 def create_disruption(trip_id: int, body: DisruptionIn, user_id: int = Depends(current_user),
-                      conn=Depends(get_conn)):
+                      conn=Depends(get_shard)):
     trip = _trip(conn, trip_id, user_id)
     loaded = load_itinerary(conn, trip_id, body.version)
     if not loaded:
@@ -79,7 +78,7 @@ def create_disruption(trip_id: int, body: DisruptionIn, user_id: int = Depends(c
 
 @router.post("/trips/{trip_id}/proposals/{proposal_id}/apply")
 def apply_proposal(trip_id: int, proposal_id: int, body: ApplyIn, user_id: int = Depends(current_user),
-                   conn=Depends(get_conn)):
+                   conn=Depends(get_shard)):
     _trip(conn, trip_id, user_id)
     with conn.transaction():
         p = conn.execute("SELECT * FROM proposals WHERE id = %s AND trip_id = %s FOR UPDATE",

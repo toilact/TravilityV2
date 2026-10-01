@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app import auth, proposals, trips, versions
 from app.config import settings
-from app.db import apply_schema, connect
+from app.db import init_schemas
 from app.places_client import PLACES_DOWN, PlacesDown, list_destinations
 
 _DEFAULT_JWT_SECRETS = {"dev-secret-change-me", "doi-chuoi-nay-thanh-chuoi-ngau-nhien-dai"}
@@ -16,8 +16,7 @@ _DEFAULT_JWT_SECRETS = {"dev-secret-change-me", "doi-chuoi-nay-thanh-chuoi-ngau-
 async def lifespan(_: FastAPI):
     if settings.jwt_secret in _DEFAULT_JWT_SECRETS:
         raise RuntimeError("JWT_SECRET chưa được đặt — sửa server/.env")
-    with connect() as conn:
-        apply_schema(conn)
+    init_schemas()
     if settings.places_url:  # nạp sẵn Destination: places chết sau đó thì danh sách và mở Trip vẫn chạy (spec S27)
         try:
             list_destinations(None)

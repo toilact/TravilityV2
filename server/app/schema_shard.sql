@@ -1,43 +1,12 @@
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE IF NOT EXISTS users (
-  id serial PRIMARY KEY,
-  email text UNIQUE NOT NULL,
-  password_hash text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS destinations (
-  slug text PRIMARY KEY,
-  name text NOT NULL,
-  lat double precision NOT NULL,
-  lon double precision NOT NULL
-);
-ALTER TABLE destinations ADD COLUMN IF NOT EXISTS hubs jsonb NOT NULL DEFAULT '{}';
-
-CREATE TABLE IF NOT EXISTS places (
-  id serial PRIMARY KEY,
-  ext_id text UNIQUE NOT NULL,
-  destination text NOT NULL REFERENCES destinations(slug),
-  name text NOT NULL,
-  kind text NOT NULL,
-  lat double precision NOT NULL,
-  lon double precision NOT NULL,
-  price integer NOT NULL DEFAULT 0,
-  open_hours jsonb NOT NULL DEFAULT '{}',
-  outdoor boolean NOT NULL DEFAULT false,
-  tags text[] NOT NULL DEFAULT '{}',
-  description text NOT NULL DEFAULT '',
-  photo_url text,
-  embedding vector(768) NOT NULL
-);
-
+-- Bảng theo User: nằm ở shard user_id % N khi có SHARD_URLS, không thì chung database với schema_catalog.sql.
 CREATE TABLE IF NOT EXISTS trips (
   id serial PRIMARY KEY,
-  user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- users nằm ở database chung nên không có khoá ngoại; user_id luôn lấy từ JWT đã kiểm (spec scale §9.1)
+  user_id integer NOT NULL,
   spec jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE trips DROP CONSTRAINT IF EXISTS trips_user_id_fkey;  -- database tạo trước khi tách shard
 ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_messages text[] NOT NULL DEFAULT '{}';
 -- change_trip đang chờ người dùng đồng ý ({changes, message, text}); gõ "oke" cũng lập lại được
 ALTER TABLE trips ADD COLUMN IF NOT EXISTS pending_replan jsonb;

@@ -2,8 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.auth import current_user
-from app.db import get_conn
+from app.auth import current_user, get_shard
 from app.agent import itinerary_event
 from app.domain import Trip
 from app.places_client import get_places, list_destinations
@@ -28,7 +27,7 @@ class PinIn(BaseModel):
 
 
 @router.patch("/trips/{trip_id}/pins")
-def set_pin(trip_id: int, body: PinIn, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+def set_pin(trip_id: int, body: PinIn, user_id: int = Depends(current_user), conn=Depends(get_shard)):
     _own(conn, trip_id, user_id)
     if body.pinned:
         latest = latest_itinerary(conn, trip_id)
@@ -43,14 +42,14 @@ def set_pin(trip_id: int, body: PinIn, user_id: int = Depends(current_user), con
 
 
 @router.get("/trips/{trip_id}/messages")
-def get_messages(trip_id: int, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+def get_messages(trip_id: int, user_id: int = Depends(current_user), conn=Depends(get_shard)):
     _own(conn, trip_id, user_id)
     return conn.execute("SELECT role, text, version, created_at FROM messages WHERE trip_id = %s ORDER BY id",
                         (trip_id,)).fetchall()
 
 
 @router.post("/trips/{trip_id}/restore/{version}")
-def restore(trip_id: int, version: int, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+def restore(trip_id: int, version: int, user_id: int = Depends(current_user), conn=Depends(get_shard)):
     """Chép bản cũ thành bản mới, tính lại tiền + Conflict theo Trip hiện tại (spec §2 D3–D5)."""
     row = _own(conn, trip_id, user_id)
     old = load_itinerary(conn, trip_id, version)

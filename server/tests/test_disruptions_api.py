@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from psycopg.types.json import Jsonb
 
 from app.agent import itinerary_event
+from app.auth import get_shard
 from app.db import get_conn
 from app.domain import Draft, Trip
 from app.main import app
@@ -17,6 +18,7 @@ TRIP = Trip(destination="da-lat", days=1, budget=5_000_000, travel_mode="grab", 
 @pytest.fixture
 def client(conn):
     app.dependency_overrides[get_conn] = lambda: conn
+    app.dependency_overrides[get_shard] = lambda: conn
     yield TestClient(app)
     app.dependency_overrides.clear()
 
