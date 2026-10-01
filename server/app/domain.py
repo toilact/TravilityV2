@@ -146,7 +146,7 @@ class Day(BaseModel):
 
 class Conflict(BaseModel):
     kind: Literal["over_budget", "closed", "missing_tag", "rain_outdoor", "before_arrival", "after_departure",
-                  "missing_meal"]
+                  "missing_meal", "no_travel_time"]
     message: str
     day_index: int | None = None
     place_id: int | None = None

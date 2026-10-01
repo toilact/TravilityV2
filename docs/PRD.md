@@ -115,9 +115,9 @@ Tiêu chí chấp nhận: pytest chứng minh Draft đụng Pinned Stop bị t�
 | Leg giữa các điểm liên tiếp; Leg < ~800 m thì đi bộ | ✅ |
 | Chi phí: xe máy thuê theo ngày × số xe + xăng/km; Grab theo công thức cố định | ✅ |
 | Budget = ăn + vé + Stay + Leg (không gồm di chuyển liên tỉnh, ADR-0005) | ✅ |
-| Km thật từ **Goong Distance Matrix ở server**; lỗi thì dùng chim bay × 1.3 | ⏳ hiện chỉ có chim bay × 1.3 |
+| Km thật từ **Goong Distance Matrix ở server**; lỗi thì dùng chim bay × 1.3 | ✅ (#7) |
 | Xe máy riêng / ô tô riêng: không tiền thuê; ô tô 3.500đ/km + gửi xe 50.000đ/ngày | ✅ |
-| Conflict mới **"không kịp di chuyển"**: thời gian Leg dài hơn khoảng trống giữa hai Stop | ⏳ |
+| Conflict mới **"không kịp di chuyển"**: thời gian Leg dài hơn khoảng trống giữa hai Stop (du di 5′) | ✅ (#7) |
 | Tối ưu thứ tự Stop bằng thuật toán | ❌ ngoài phạm vi (phá khung giờ AI đã xếp) |
 
 Tiêu chí chấp nhận: km trên Timeline khớp với tuyến Goong vẽ trên map (sai số < 10%).
@@ -313,7 +313,7 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 | Goong Matrix hết quota / lỗi | Fallback công thức chim bay × 1.3 |
 
 ## 15. Câu hỏi mở
-- Có cần ADR cho việc chuyển tính km sang Goong Distance Matrix ở server không?
+- ~~Có cần ADR cho việc chuyển tính km sang Goong Distance Matrix ở server không?~~ Không (2026-10-01): quyết định đã nằm ở §5, đảo lại chỉ cần bỏ `GOONG_API_KEY`.
 - Nguồn ảnh Place (tự chụp, Goong, Wikimedia) và vấn đề bản quyền.
 - Giới hạn độ dài lịch sử chat gửi cho LLM trong mỗi Revision.
 - Có vẽ lại tuyến đường trên map bằng dữ liệu từ server để khỏi gọi Goong Directions ở client không?

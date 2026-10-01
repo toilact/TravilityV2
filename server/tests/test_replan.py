@@ -1,5 +1,7 @@
+import httpx
 import pytest
 
+from app.config import settings
 from app.domain import WEEKDAYS, Disruption, Draft, Place, Trip
 from app.replan import InvalidDisruption, NoFeasible, propose
 from app.rules import build_itinerary
@@ -263,3 +265,25 @@ def test_late_explains_new_missing_meal_and_pinned_conflict():
     places, itin = setup([(LOST, "09:00"), (morning, "11:00")], pinned={2})
     opts = propose(TRIP, itin, places, late(stop=0, minutes=60), cands())
     assert "P2 không mở cửa lúc 12:00" in opts[0].explanation
+
+
+def test_candidates_ranked_by_real_road_time(monkeypatch):
+    """Ứng viên chim bay gần hơn nhưng đường thật vòng xa → bị loại vì không kịp giờ."""
+    monkeypatch.setattr(settings, "goong_api_key", "k")
+
+    def handler(request):  # mọi chặng 1 km / 3′, riêng chặng dính tới P3 (lat 11.9402) là 30 km / 70′
+        q = request.url.params
+        return httpx.Response(200, json={"rows": [{"elements": [
+            {"status": "OK", "distance": {"value": m}, "duration": {"value": s}}
+            for d in q["destinations"].split("|")
+            for m, s in [(30_000, 4200) if "11.9402" in o + d else (1000, 180)]]}
+            for o in q["origins"].split("|")]})
+    monkeypatch.setattr(httpx, "get", lambda url, params, timeout: httpx.Client(
+        transport=httpx.MockTransport(handler)).get(url, params=params))
+
+    a, lost, b = P(1), P(2, lat=11.9401), P(4)
+    near_but_slow, ok = P(3, lat=11.9402), P(5, lat=11.95)
+    places, itin = setup([(a, "09:00"), (lost, "10:15"), (b, "11:30")])
+    opts = propose(TRIP, itin, places, Disruption(version=1, kind="closed", day_index=0, stop_index=1),
+                   lambda lost, used: [near_but_slow, ok])
+    assert [o.added[0].id for o in opts] == [5]

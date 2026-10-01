@@ -57,9 +57,12 @@ Client streamTrip(message, tripId) — POST /trips {message, trip_id?} (Bearer J
           → rules.build_itinerary:
                • kiểm tra Place đã được search, đủ số ngày, có Stay nếu > 1 ngày
                • route mỗi ngày: [Hub ngày 1 | Stay] → Stop… → [Hub ngày cuối | Stay]
-               • Leg: chim bay × 1.3; < 0.8 km đi bộ; xe máy thuê / riêng, ô tô riêng, Grab
+               • Leg: km + phút từ Goong Distance Matrix (app/distance.py, 1 request/ngày, cache trong tiến trình);
+                 không có GOONG_API_KEY hoặc Goong lỗi → chim bay × 1.3 (lỗi thì nghỉ gọi 60s);
+                 < 0.8 km đi bộ; xe máy thuê / riêng, ô tô riêng, Grab
                • find_conflicts: vượt Budget, đóng cửa, thiếu tag, mưa + ngoài trời,
-                 before_arrival, after_departure, missing_meal
+                 before_arrival, after_departure, missing_meal,
+                 no_travel_time (Leg dài hơn khoảng trống giữa hai Stop + 5′; Conflict mềm với engine thay thế)
           → sai: cho LLM làm lại 1 lần
           → có Conflict: gửi lại cho LLM sửa 1 lần, lần submit thứ 2 được chấp nhận
         → INSERT itineraries (version = max + 1) → "itinerary" {itinerary, places, trip_id, version}
@@ -93,6 +96,7 @@ Sự cố trên một Stop (`server/app/proposals.py`, JSON thường, không SS
 POST /trips/{id}/disruptions {version, kind: closed|disliked|rain|late, day_index, stop_index?, minutes?}  # rain: không stop_index; late: minutes 5–240
   → version khác bản mới nhất: 409 · Stop đã ghim / không tồn tại: 422 · Trip của User khác: 404
   → replan.propose: ứng viên = similar_places (embedding đã lưu, cùng kind, bỏ Place đã dùng + Tag tránh)
+      → distance.prefetch chặng tới/rời từng ứng viên (km thật)
       → lọc is_open + kịp giờ (make_leg) → xếp theo score(features) → build_itinerary
       → loại phương án sinh Conflict cứng mới → tối đa 3 Proposal + metrics + reason_codes + câu giải thích
   → INSERT proposals (kiêm log feedback) → {proposal_id, options} hoặc {proposal_id, no_feasible}
@@ -117,7 +121,7 @@ POST /trips/{id}/proposals/{pid}/apply {option}
 | Kem/ăn vặt (kind `an-uong`) vẫn tính là bữa chính | Tag `an-vat` không tính là bữa |
 | Vượt Budget chỉ báo một dòng, không có bảng chi phí | Gửi breakdown cho AI + hiện trên Timeline |
 | Leg Hub → thành phố tính theo Travel Mode | Tính theo Arrival Mode |
-| Chi phí Leg theo chim bay × 1.3, map vẽ theo Goong | Goong Distance Matrix (#7) |
+| Server tính Leg theo xe của Travel Mode (bike/car), map luôn vẽ `vehicle=bike` | Grab / ô tô riêng có thể lệch nhẹ với tuyến vẽ → truyền Travel Mode cho `MapView` |
 | Mỗi lần search gọi embedding một lần; Gemini free giới hạn request/phút | demo_cache (#14); demo nên dùng OpenAI |
 | Chưa có Traveler Profile, chỗ ở đã đặt, điểm bắt buộc ghé | Lát 2–3 của spec cá nhân hoá (#18) |
 | Dữ liệu 37 Place, 27 chưa kiểm chứng | #19 |

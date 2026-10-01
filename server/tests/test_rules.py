@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 
+from app import distance
 from app.domain import Draft, Hub, Itinerary, Place, Trip, intent_weights, place_intents
 from app.rules import InvalidDraft, build_itinerary, is_open, make_leg
 
@@ -252,3 +253,52 @@ def test_draft_missing_pinned_place_is_rejected():
     with pytest.raises(InvalidDraft, match="Thiếu Place đã ghim"):
         build_itinerary(trip, draft, {1: p}, pinned={1, 7})
     assert build_itinerary(trip, draft, {1: p}, pinned={1}).days[0].stops[0].place_id == 1
+
+
+def test_leg_uses_goong_when_cached():
+    a, b = P(1), P(2, lat=12.04)
+    distance._cache[distance._key(a, b, "bike")] = (20.0, 48)
+    leg = make_leg(a, b, "xe-may", 1)
+    assert (leg.distance_km, leg.duration_min, leg.cost) == (20.0, 48, 40_000)
+    assert make_leg(b, a, "xe-may", 1).distance_km == pytest.approx(14.46, abs=0.05)  # chưa có → chim bay × 1.3
+
+
+def test_goong_short_leg_still_walks():
+    a, b = P(1), P(2, lat=11.9401)
+    distance._cache[distance._key(a, b, "bike")] = (0.5, 2)
+    leg = make_leg(a, b, "xe-may", 1)
+    assert (leg.mode, leg.cost, leg.duration_min) == ("walk", 0, 7)  # 0.5 km đi bộ, không lấy phút xe máy
+
+
+def two_stops(second_start, lat=12.04):
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000)
+    d = Draft.model_validate({"summary": "", "days": [{"stops": [
+        {"place_id": 1, "start_time": "09:00", "duration_min": 60},
+        {"place_id": 2, "start_time": second_start, "duration_min": 60}]}]})
+    return build_itinerary(trip, d, {1: P(1), 2: P(2, lat=lat)})
+
+
+def test_no_travel_time_conflict():
+    itin = two_stops("10:10")  # ~14.5 km xe máy ≈ 35′, chỉ có 10′
+    c = next(c for c in itin.conflicts if c.kind == "no_travel_time")
+    assert (c.day_index, c.place_id) == (0, 2)
+    assert c.message == "Ngày 1: không kịp đi từ P1 đến P2 — cần 35′, chỉ có 10′"
+
+
+def test_enough_gap_no_travel_conflict():
+    assert kinds(two_stops("10:40")) == []
+    assert kinds(two_stops("10:00", lat=11.9401)) == []  # sát giờ nhưng đi bộ 1′ → trong mức du di
+
+
+def test_overlapping_stops_conflict():
+    assert "no_travel_time" in kinds(two_stops("09:30", lat=11.9401))
+
+
+def test_no_travel_time_with_stay_and_hub():
+    trip = Trip(destination="da-lat", days=2, budget=10_000_000)
+    d = Draft.model_validate({"stay_place_id": 9, "summary": "", "days": [{"stops": [
+        {"place_id": 1, "start_time": "09:00", "duration_min": 60},
+        {"place_id": 2, "start_time": "10:10", "duration_min": 60}]},
+        {"stops": [{"place_id": 1, "start_time": "09:00", "duration_min": 60}]}]})
+    itin = build_itinerary(trip, d, {1: P(1), 2: P(2, lat=12.04), **STAY}, hub=HUB)
+    assert [c.place_id for c in itin.conflicts if c.kind == "no_travel_time"] == [2]

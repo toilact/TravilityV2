@@ -1,6 +1,6 @@
 # Travility — Roadmap
 
-Cập nhật: **2026-09-30**, sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
+Cập nhật: **2026-10-01** (Goong Matrix #7, #39); kế hoạch chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
 Nguồn: [PRD](PRD.md) (§5 yêu cầu, §12 lộ trình, §13 thứ tự cắt), [hiện trạng code](2026-09-25-hien-trang-app.md), GitHub Issues #2–#41.
 Bảng theo dõi trên GitHub (tự tick khi đóng issue): **issue #42** (đã ghim).
 
@@ -12,12 +12,12 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 | Nhóm chức năng | Xong | Tổng |
 |---|---|---|
 | 1. Nền tảng & tài khoản | 5 | 5 |
-| 2. Lập Trip & Itinerary (lõi) | 13 | 14 |
+| 2. Lập Trip & Itinerary (lõi) | 14 | 14 |
 | 3. Revision, Pinned, version | 5 | 6 |
 | 4. Revision giữ mục đích (§5.11) | 3 | 7 |
 | 5. Cá nhân hoá Trip | 1 | 3 |
-| 6. Stay, đường đi, chi phí | 6 | 9 |
-| 7. UI/UX mới | 1 | 8 |
+| 6. Stay, đường đi, chi phí | 7 | 9 |
+| 7. UI/UX mới | 6 | 6 |
 | 8. Dữ liệu Place | 1 | 5 |
 | 9. Giọng nói, recap, PDF | 0 | 4 |
 | 10. Chất lượng & demo | 1 | 5 |
@@ -41,13 +41,13 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 - [x] Stream tiến trình qua SSE (`thinking`, `trip`, `tool_call`, `clarify`, `itinerary`, `error`)
 - [x] Thiếu phương tiện / giờ đến–về → hỏi lại một vòng bằng chip
 - [x] Luôn trả Itinerary kèm Conflict thay vì báo lỗi; Conflict gửi lại AI sửa 1 lần
-- [x] Conflict: vượt Budget, đóng cửa, thiếu Tag, mưa + ngoài trời, trước giờ đến, sau giờ về, thiếu bữa
+- [x] Conflict: vượt Budget, đóng cửa, thiếu Tag, mưa + ngoài trời, trước giờ đến, sau giờ về, thiếu bữa, không kịp di chuyển (#7)
 - [x] Bắt buộc đủ 3 bữa/ngày, nhãn Bữa sáng/trưa/tối trên Timeline
 - [x] Mỗi Stop có lý do chọn
 - [x] Forecast Open-Meteo (ngày đi trong 16 ngày tới)
 - [x] Lưu Trip + mọi version Itinerary trong DB
 - [x] Mở lại Trip: mở app tự mở Trip gần nhất + danh sách "Chuyến đi của tôi" trên rail (#3)
-- [ ] Chặn AI xếp Place loại chỗ ở làm Stop (hiện tiền phòng có thể bị tính 2 lần) — #39 (Thành)
+- [x] Chặn AI xếp Place loại chỗ ở làm Stop (Draft bị từ chối, AI làm lại 1 lần) — #39
 
 ## 3. Revision, Pinned Stop, phiên bản (§5.4 — **không được cắt**)
 - [x] Chat gắn với Trip đang mở + nút "Chuyến mới" (bản tạm: mỗi tin nhắn **lập lại cả lịch trình** thành version mới)
@@ -88,7 +88,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - [x] Budget = ăn + vé + Stay + Leg (không gồm liên tỉnh, ADR-0005)
 - [x] Leg Hub → thành phố ngày đầu/cuối
 - [ ] Tag loại chỗ ở (khách sạn, homestay, hostel, resort) + đổi Stay qua Revision — #26 (Thành)
-- [ ] Km thật bằng Goong Distance Matrix + Conflict "không kịp di chuyển" — #7 (Thành, T4)
+- [x] Km + phút thật bằng Goong Distance Matrix ở server (`app/distance.py`, lỗi / không có key → chim bay × 1.3) + Conflict "không kịp di chuyển" — #7
 - [ ] Bảng chi phí theo nhóm trên Timeline (ăn / vé / Stay / di chuyển) — #40 (Nhật)
 
 ## 7. UI/UX mới (§7)
@@ -115,7 +115,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - ~~Inspiration Photo → Suggestion trên map — #10, #27~~ (cắt 2026-09-29, nhường chỗ §5.11)
 
 ## 10. Chất lượng & demo
-- [x] Test tự động: server 131, client 13; đã chạy E2E với Gemini thật
+- [x] Test tự động: server 203, client 31; đã chạy E2E với Gemini thật
 - [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
 - [ ] demo_cache: ghi và phát lại phản hồi để demo khi mất mạng — #14 (Tùng, T10)
 - [ ] Đóng gói PyInstaller Mac .app + Windows .exe qua GitHub Actions; app tự bật server (`/health` → `docker compose up -d`) — #15 (Thành, T10)
@@ -132,7 +132,7 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 | T1 | Nền tảng + AI Trip Planner lõi; cá nhân hoá lát 1; Revision giữ mục đích lát A+B | ✅ |
 | T2–T3 (→15/10) | Revision đầy đủ: mở lại Trip + lịch sử chat (#17, #3) → Pinned (#25) → version + quay lại (#24) | ✅ |
 | T4 | UI mới: mockup bằng AI → layout map toàn màn hình + rail (#2, #16, #4) ✅; kiểm mốc dữ liệu 15/10; #39 | ⏳ |
-| T5–T6 | Lát C mưa + trễ (#32); Goong Matrix (#7); nợ kỹ thuật (#37) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
+| T5–T6 | Lát C mưa + trễ (#32) ✅; Goong Matrix (#7) ✅; nợ kỹ thuật (#37) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
 | T7–T8 | Tag chỗ ở + đổi Stay (#26); PDF (#11); recap (#28); ranker (#35) · Nhật giọng nói (#8, #9), bảng chi phí (#40) | ⏳ |
 | T9 | Chuyển OpenAI, golden set (#6), lát F (#36) | ⏳ |
 | T10 | demo_cache (#14), PyInstaller + CI (#15), diễn tập có tắt mạng (#29) | ⏳ |
@@ -140,6 +140,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; #39 chờ merge PR #45. Tiếp: Goong Matrix (#7), nợ lát A+B (#37).
+1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. Tiếp: nợ lát A+B (#37), Tag chỗ ở + đổi Stay (#26).
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
 3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.
