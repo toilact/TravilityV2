@@ -17,7 +17,9 @@ def connect(url: str | None = None) -> psycopg.Connection:
 
 
 def apply_schema(conn: psycopg.Connection) -> None:
-    conn.execute(SCHEMA.read_text())
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(4949)")  # các bản api và planner trong cụm khởi động cùng lúc
+        conn.execute(SCHEMA.read_text())
     register_vector(conn)  # extension có thể vừa được tạo lại → đăng ký lại kiểu vector
 
 
