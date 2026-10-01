@@ -52,6 +52,13 @@ def test_unknown_place_rejected():
         build_itinerary(Trip(destination="da-lat", days=1, budget=1), draft([[999]]), {1: P(1)})
 
 
+def test_stay_place_as_stop_rejected():
+    # #39: Place chỗ ở làm Stop → tiền phòng bị tính 2 lần
+    places = {1: P(1), 9: P(9, kind="cho-o", price=500_000, hours={})}
+    with pytest.raises(InvalidDraft, match="chỗ ở"):
+        build_itinerary(Trip(destination="da-lat", days=2, budget=1), draft([[1], [9]], stay=9), places)
+
+
 def test_multi_day_requires_stay():
     with pytest.raises(InvalidDraft, match="stay_place_id"):
         build_itinerary(Trip(destination="da-lat", days=2, budget=1), draft([[1], [1]]), {1: P(1)})
