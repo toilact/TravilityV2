@@ -2,6 +2,8 @@ import datetime as dt
 
 import httpx
 
+from app import forecast
+from app.config import settings
 from app.forecast import get_rain_chance
 
 TODAY = dt.date(2026, 9, 25)
@@ -42,3 +44,32 @@ def test_injected_client_not_closed():
     r = get_rain_chance(11.9, 108.4, dt.date(2026, 9, 27), 2, c, TODAY)
     assert r == [10, 20]
     assert not c.is_closed
+
+
+ARGS = (11.9, 108.4, dt.date(2026, 9, 27), 2)
+KEY = "forecast:11.9:108.4:2026-09-27:2"
+
+
+def offline():
+    def boom(request):
+        raise httpx.ConnectError("offline")
+    return httpx.Client(transport=httpx.MockTransport(boom))
+
+
+def test_cached_in_redis_survives_network_loss(rds):
+    assert get_rain_chance(*ARGS, client_returning([10, 20]), TODAY) == [10, 20]
+    assert get_rain_chance(*ARGS, offline(), TODAY) == [10, 20]
+    assert 0 < rds.ttl(KEY) <= forecast.CACHE_S
+
+
+def test_failure_not_cached(rds):
+    assert get_rain_chance(*ARGS, offline(), TODAY) is None
+    assert get_rain_chance(*ARGS, client_returning([10, 20]), TODAY) == [10, 20]
+
+
+def test_demo_today_records_failure_forever(rds, monkeypatch):
+    """Đã đóng băng ngày thì kết quả lúc ghi (kể cả lỗi) phải lặp lại y nguyên lúc phát lại."""
+    monkeypatch.setattr(settings, "demo_today", TODAY)
+    assert get_rain_chance(*ARGS, offline(), TODAY) is None
+    assert get_rain_chance(*ARGS, client_returning([10, 20]), TODAY) is None
+    assert rds.ttl(KEY) == -1

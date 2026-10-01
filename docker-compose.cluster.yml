@@ -1,3 +1,6 @@
+# Cụm phân tán (spec scale §4). T2: db + redis + llm-gateway + api.
+# Dùng chung cổng 5432/6379/8000 với docker-compose.yml → `docker compose down` trước khi bật cụm.
+name: travility-cluster
 services:
   db:
     image: pgvector/pgvector:pg17
@@ -23,15 +26,33 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       retries: 30
+  llm-gateway:
+    build: ./server
+    command: ["uv", "run", "--no-dev", "uvicorn", "app.gateway:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: ./server/.env  # LLM_* / EMBED_* ở đây là provider thật
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      GATEWAY_CACHE: ${GATEWAY_CACHE:-on}
+      GATEWAY_CHAT_TTL: ${GATEWAY_CHAT_TTL:-86400}
+    ports: ["127.0.0.1:8001:8000"]
+    depends_on:
+      redis:
+        condition: service_healthy
   api:
     build: ./server
     env_file: ./server/.env
     environment:
       DATABASE_URL: postgresql://travility:travility@db:5432/travility
+      REDIS_URL: redis://redis:6379/0
+      LLM_BASE_URL: http://llm-gateway:8000/v1
+      EMBED_BASE_URL: http://llm-gateway:8000/v1
+      DEMO_TODAY: ${DEMO_TODAY:-}
     ports: ["127.0.0.1:8000:8000"]
     depends_on:
       db:
         condition: service_healthy
+      llm-gateway:
+        condition: service_started
 volumes:
   pgdata: {}
   redisdata: {}
