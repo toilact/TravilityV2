@@ -323,3 +323,29 @@ def test_demo_today_freezes_parse_and_forecast(client, conn, monkeypatch):
     client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=auth(client))
     assert "Hôm nay là 2026-12-01" in fake.calls[0]["messages"][0]["content"]
     assert seen == {"today": dt.date(2026, 12, 1)}
+
+
+def test_job_message_runs_from_plain_params(client, conn, monkeypatch):
+    pid = add_place(conn, kind="cafe")
+    use_llm(monkeypatch, happy(pid))
+    auth(client)
+    uid = conn.execute("SELECT id FROM users").fetchone()["id"]
+    out = trips.guarded(trips.JOBS["message"](conn, uid, message="Đà Lạt 1 ngày 2 triệu", trip_id=None))
+    assert [json.loads(s[6:])["type"] for s in out] == ["thinking", "trip", "tool_call", "itinerary"]
+
+
+def test_job_message_on_missing_trip_is_error_event(client, conn):
+    auth(client)
+    uid = conn.execute("SELECT id FROM users").fetchone()["id"]
+    out = list(trips.JOBS["message"](conn, uid, message="x", trip_id=999))
+    assert json.loads(out[0][6:]) == {"type": "error", "message": "Không tìm thấy chuyến đi"}
+
+
+def test_guarded_turns_exception_into_error_event():
+    def boom():
+        yield "a"
+        raise RuntimeError("x")
+
+    out = list(trips.guarded(boom()))
+    assert out[0] == "a"
+    assert json.loads(out[1][6:]) == {"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."}

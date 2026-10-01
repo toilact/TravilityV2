@@ -45,31 +45,33 @@ def destinations(conn=Depends(get_conn)):
     return list_destinations(conn)
 
 
-def _stream(run) -> StreamingResponse:
-    """Chạy generator `run(conn)` trong SSE; lỗi → event error tiếng Việt."""
+def guarded(events):
+    """Chạy generator chuỗi SSE của một việc; lỗi → event error tiếng Việt. Dùng chung cho request và worker."""
+    try:
+        yield from events
+    except openai.OpenAIError:
+        logger.exception("Lỗi gọi AI khi lập lịch trình")
+        yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
+    except Exception:
+        logger.exception("Lỗi không lường trước khi lập lịch trình")
+        yield sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."})
+
+
+def _stream(kind: str, user_id: int, **params) -> StreamingResponse:
+    """Chạy việc JOBS[kind] trong SSE. params phải JSON được: chế độ queue gửi chúng qua Redis."""
     def events():
         with stream_conn() as conn:
-            try:
-                yield from run(conn)
-            except openai.OpenAIError:
-                logger.exception("Lỗi gọi AI khi lập lịch trình")
-                yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
-            except Exception:
-                logger.exception("Lỗi không lường trước khi lập lịch trình")
-                yield sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."})
+            yield from guarded(JOBS[kind](conn, user_id, **params))
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post("/trips")
 def create_trip(body: NewTrip, user_id: int = Depends(current_user), conn=Depends(get_conn)):
-    prev = None
-    if body.trip_id is not None:
-        prev = conn.execute("SELECT id, spec, user_messages, pending_replan FROM trips WHERE id = %s AND user_id = %s",
-                            (body.trip_id, user_id)).fetchone()
-        if not prev:
-            raise HTTPException(404, "Không tìm thấy chuyến đi")
-    return _stream(lambda c: _run(c, user_id, body.message, prev))
+    if body.trip_id is not None and not conn.execute(
+            "SELECT 1 FROM trips WHERE id = %s AND user_id = %s", (body.trip_id, user_id)).fetchone():
+        raise HTTPException(404, "Không tìm thấy chuyến đi")
+    return _stream("message", user_id, message=body.message, trip_id=body.trip_id)
 
 
 def hub_for(dest: dict, trip: Trip) -> Hub | None:
@@ -222,6 +224,37 @@ def _run(conn, user_id: int, message: str, prev: dict | None = None):
     yield from _plan_and_save(conn, client, trip_id, trip, d, user_messages)
 
 
+def _trip_row(conn, user_id: int, trip_id: int) -> dict | None:
+    return conn.execute("SELECT id, spec, user_messages, pending_replan FROM trips WHERE id = %s AND user_id = %s",
+                        (trip_id, user_id)).fetchone()
+
+
+def _job_message(conn, user_id: int, message: str, trip_id: int | None = None):
+    prev = _trip_row(conn, user_id, trip_id) if trip_id is not None else None
+    if trip_id is not None and not prev:
+        yield sse({"type": "error", "message": "Không tìm thấy chuyến đi"})
+        return
+    yield from _run(conn, user_id, message, prev)
+
+
+def _job_plan(conn, user_id: int, trip_id: int):
+    row = _trip_row(conn, user_id, trip_id)
+    trip = Trip.model_validate(row["spec"])
+    dest = next(d for d in list_destinations(conn) if d["slug"] == trip.destination)
+    yield _trip_event(trip_id, trip, dest)
+    yield from _plan_and_save(conn, llm.chat_client(), trip_id, trip, dest, row["user_messages"])
+
+
+def _job_replan(conn, user_id: int, trip_id: int, changes: dict, message: str):
+    row = _trip_row(conn, user_id, trip_id)
+    yield from _replan(conn, llm.chat_client(), trip_id, Trip.model_validate(row["spec"]), row["user_messages"],
+                       changes, message)
+
+
+# Việc lập lịch theo tên: chạy trong request (chế độ một tiến trình) hoặc trong worker planner (spec scale §5).
+JOBS = {"message": _job_message, "plan": _job_plan, "replan": _job_replan}
+
+
 @router.post("/trips/{trip_id}/plan")
 def plan_trip(trip_id: int, answers: TripAnswers, user_id: int = Depends(current_user), conn=Depends(get_conn)):
     row = conn.execute("SELECT spec, user_messages FROM trips WHERE id = %s AND user_id = %s",
@@ -235,13 +268,7 @@ def plan_trip(trip_id: int, answers: TripAnswers, user_id: int = Depends(current
     except ValidationError as e:
         raise HTTPException(422, e.errors()[0]["msg"].removeprefix("Value error, ")) from None
     conn.execute("UPDATE trips SET spec = %s WHERE id = %s", (Jsonb(trip.model_dump(mode="json")), trip_id))
-
-    def run(c):
-        dest = next(d for d in list_destinations(c) if d["slug"] == trip.destination)
-        yield _trip_event(trip_id, trip, dest)
-        yield from _plan_and_save(c, llm.chat_client(), trip_id, trip, dest, row["user_messages"])
-
-    return _stream(run)
+    return _stream("plan", user_id, trip_id=trip_id)
 
 
 class Replan(BaseModel):
@@ -261,8 +288,7 @@ def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user)
         changed_trip(trip, body.changes)
     except ValidationError as e:
         raise HTTPException(422, e.errors()[0]["msg"].removeprefix("Value error, ")) from None
-    return _stream(lambda c: _replan(c, llm.chat_client(), trip_id, trip, row["user_messages"], body.changes,
-                                     body.message))
+    return _stream("replan", user_id, trip_id=trip_id, changes=body.changes, message=body.message)
 
 
 @router.get("/trips")
