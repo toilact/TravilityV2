@@ -116,7 +116,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - ~~Inspiration Photo → Suggestion trên map — #10, #27~~ (cắt 2026-09-29, nhường chỗ §5.11)
 
 ## 10. Chất lượng & demo
-- [x] Test tự động: server 315, client 33; đã chạy E2E với Gemini thật
+- [x] Test tự động: server 316, client 33; đã chạy E2E với Gemini thật
 - [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
 - [ ] Đóng gói PyInstaller Mac .app + Windows .exe qua GitHub Actions; app tự bật server (`/health` → `docker compose up -d`) — #15 (Thành, T10)
 - [ ] Kịch bản demo + diễn tập (có một lần tắt mạng) — #29 (Thành, T10)

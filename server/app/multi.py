@@ -118,6 +118,8 @@ def shortlist(conn, client, model: str, trip: Trip, role: str, embed_fn, rain, u
 def _work(put, client, model: str, trip: Trip, role: str, embed_fn, rain, user_messages: list[str]) -> None:
     """Chạy một chuyên gia; event, kết quả hoặc lỗi {"role", "error"} đều đi qua put."""
     try:
+        # Provider treo một lượt thì bỏ sau đúng thời gian điều phối chờ; không thử lại, điều phối đã có agent đơn.
+        client = client.with_options(timeout=AGENT_WAIT_S, max_retries=0)
         with agent_conn() as conn:
             put(shortlist(conn, client, model, trip, role, embed_fn, rain, user_messages, put))
     except Exception as e:  # lỗi nào cũng thành "agent lỗi": điều phối quay về agent đơn

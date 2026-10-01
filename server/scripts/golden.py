@@ -64,6 +64,10 @@ class Counting:
         self._lock = threading.Lock()
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
+    def with_options(self, **options):
+        self._inner = self._inner.with_options(**options)
+        return self
+
     def _create(self, **kwargs):
         waited = self._throttle.acquire()
         with self._lock:

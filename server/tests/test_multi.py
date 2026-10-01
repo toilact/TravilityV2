@@ -185,3 +185,12 @@ def test_notes_order_is_fixed_whichever_agent_finishes_first(conn):
     list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
     brief = rc.calls_for(SYNTH)[0]["messages"][1]["content"]
     assert brief.index("Ăn uống —") < brief.index("Tham quan —")
+
+
+def test_specialist_llm_calls_are_bounded_by_coordinator_wait(conn):
+    """Provider treo một lượt: chuyên gia không được giữ worker / kết nối lâu hơn thời gian điều phối chờ."""
+    cafe = add_place(conn, "Cafe", "cafe")
+    rc, out = RoleClient({SIGHT: [SEARCH, pick(cafe)]}), []
+    multi._work(out.append, rc, "m", trip(), "tham-quan", fake_embed, None, [])
+    assert rc.options == {"timeout": multi.AGENT_WAIT_S, "max_retries": 0}
+    assert out[-1]["place_ids"] == [cafe]

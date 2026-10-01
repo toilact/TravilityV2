@@ -99,7 +99,7 @@ Trong Chat, mỗi dòng tìm kiếm có nhãn agent: "Ăn uống · Đang tìm: 
 ### Tắt agent giữa lúc lập lịch
 
 1. `dc stop planner-agent`, rồi gửi một yêu cầu lập lịch chưa từng gửi.
-2. Sau tối đa 45 giây Chat hiện "Chuyển sang lập lịch thường…", rồi ra lịch bằng agent đơn.
+2. Điều phối chờ tối đa 45 giây rồi chạy agent đơn; Chat hiện "Chuyển sang lập lịch thường…" kèm các dòng tìm kiếm của agent đơn, rồi ra lịch (đo được: khoảng 56 giây cho cả lượt).
 3. `dc start planner-agent`.
 
 Một agent báo lỗi thì chuyển ngay, không chờ 45 giây. Việc trong `agent_jobs` giao nhiều nhất một lần; việc xếp hàng quá 45 giây bị agent bỏ qua.

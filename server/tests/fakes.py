@@ -29,6 +29,10 @@ class FakeClient:
             raise r
         return r
 
+    def with_options(self, **options):
+        self.options = options
+        return self
+
 
 class RoleClient:
     """LLM giả cho đa agent: mỗi kịch bản một hàng đợi riêng, chọn theo đoạn chữ có trong system prompt.
@@ -54,3 +58,7 @@ class RoleClient:
 
     def calls_for(self, key: str) -> list[dict]:
         return [c for c in self.calls if key in c["messages"][0]["content"]]
+
+    def with_options(self, **options):
+        self.options = options
+        return self

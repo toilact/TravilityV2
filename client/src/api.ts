@@ -63,7 +63,6 @@ export function clarifyAfter(current: Clarify | null, e: AgentEvent): Clarify | 
   return current
 }
 
-/** Event kết thúc một lượt; thêm event mới ở server thì cân nhắc thêm vào đây. */
 const AGENT_LABELS: Record<string, string> = { 'an-uong': 'Ăn uống', 'tham-quan': 'Tham quan', 'cho-o': 'Chỗ ở' }
 
 export function searchLine(e: { query: string; places: unknown[]; agent?: string }): string {
@@ -72,6 +71,7 @@ export function searchLine(e: { query: string; places: unknown[]; agent?: string
   return label ? `${label} · ${line}` : line
 }
 
+/** Event kết thúc một lượt; thêm event mới ở server thì cân nhắc thêm vào đây. */
 export const isFinal = (e: AgentEvent) => !['thinking', 'trip', 'tool_call'].includes(e.type)
 
 export type ConfirmReplan = { tripId: number; text: string; changes: Record<string, unknown>; message: string }
