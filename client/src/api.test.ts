@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, signed, toAnswers, tripLabel,
+  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, searchLine, signed, toAnswers, tripLabel,
   viewingOld, vnd,
   type AgentEvent, type Day, type Itinerary, type Place, type ProposalOption,
 } from './api'
@@ -120,5 +120,17 @@ describe('tripLabel', () => {
   it('thiếu tên thì dùng slug', () => {
     expect(tripLabel({ id: 1, spec: { destination: 'da-lat', days: 1 }, created_at: '2026-01-05T00:00:00Z',
       destination_name: null }).startsWith('da-lat · 1 ngày')).toBe(true)
+  })
+})
+
+describe('searchLine', () => {
+  it('ghép nhãn agent chuyên gia vào dòng tìm kiếm', () => {
+    expect(searchLine({ query: 'quán lẩu', places: [1, 2], agent: 'an-uong' }))
+      .toBe('Ăn uống · Đang tìm: quán lẩu (2 kết quả)')
+    expect(searchLine({ query: 'homestay', places: [], agent: 'cho-o' })).toBe('Chỗ ở · Đang tìm: homestay (0 kết quả)')
+  })
+  it('agent đơn hoặc agent lạ thì giữ dòng cũ', () => {
+    expect(searchLine({ query: 'cafe', places: [1] })).toBe('Đang tìm: cafe (1 kết quả)')
+    expect(searchLine({ query: 'cafe', places: [1], agent: 'la' })).toBe('Đang tìm: cafe (1 kết quả)')
   })
 })

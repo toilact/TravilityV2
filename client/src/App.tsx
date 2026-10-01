@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   applyProposal, clarifyAfter, confirmAfter, getMessages, getTrip, listTrips, optionPlaces, reportDisruption,
-  restoreVersion, setPin, streamPlan, streamReplan, streamTrip, tripLabel, viewingOld, vnd,
+  restoreVersion, searchLine, setPin, streamPlan, streamReplan, streamTrip, tripLabel, viewingOld, vnd,
   type AgentEvent, type Answers, type Clarify, type ConfirmReplan, type DisruptionReq, type Itinerary,
   type ItineraryEvent, type Place, type Proposal, type TripSummary,
 } from './api'
@@ -90,7 +90,7 @@ export default function App() {
         setCenter(e.center); setBudget(e.trip.budget); setItinerary(null)
         break
       case 'tool_call':
-        add({ role: 'tool', text: `Đang tìm: ${e.query} (${e.places.length} kết quả)` })
+        add({ role: 'tool', text: searchLine(e) })
         setSearchPins((p) => [...p, ...e.places.filter((x) => !p.some((y) => y.id === x.id))])
         break
       case 'itinerary':
