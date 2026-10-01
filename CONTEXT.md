@@ -86,7 +86,7 @@ Mức dày đặc của mỗi ngày trong Trip — thong thả, vừa (mặc đ�
 _Avoid_: Intensity, tempo, mật độ
 
 **Forecast** (Dự báo thời tiết):
-Thời tiết dự kiến cho từng ngày của một Trip có ngày đi cụ thể. Trip không có ngày đi thì không có Forecast.
+Khả năng mưa dự kiến cho từng ngày của một Trip có ngày đi cụ thể: từ dịch vụ dự báo nếu ngày đi trong 16 ngày tới, từ mô hình mưa của nhóm nếu xa hơn. Trip không có ngày đi thì không có Forecast.
 _Avoid_: Weather data
 
 **Tag** (Nhãn):
@@ -116,6 +116,18 @@ _Avoid_: Score, match %, độ phù hợp
 **Disruption** (Sự cố):
 Một thay đổi làm Itinerary hiện tại không còn phù hợp: Place đóng cửa, người dùng không thích một Stop, mưa một ngày, hoặc trễ giờ. Do người dùng báo; app không tự đổi lịch.
 _Avoid_: Event, incident, lỗi
+
+**Job** (Việc):
+Một yêu cầu cần gọi LLM (lập lịch, lập lại, followup) được `api` đẩy vào hàng đợi và một worker xử lý. Người dùng không thấy Job; họ chỉ thấy tiến trình của nó trong chat.
+_Avoid_: Task, request, message
+
+**Agent chuyên gia**:
+Một agent AI chỉ lo một loại Place khi lập lịch — ăn uống, tham quan, hoặc chỗ ở — và trả về danh sách ngắn. Agent tổng hợp xếp các danh sách đó thành Itinerary.
+_Avoid_: Sub-agent, bot, worker (worker là tiến trình chạy agent)
+
+**Shard**:
+Một database chứa Trip, Itinerary, tin nhắn và Proposal của một phần User. Mỗi User thuộc đúng một Shard, xác định từ mã User.
+_Avoid_: Partition, node, phân vùng
 
 **Proposal** (Phương án):
 Một Itinerary ứng viên do code tạo từ một Disruption, kèm số liệu so sánh với bản hiện tại và lý do. Chưa phải phiên bản Itinerary; chỉ thành phiên bản mới khi người dùng áp dụng.

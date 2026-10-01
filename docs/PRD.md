@@ -222,6 +222,8 @@ Rail: ＋ Chuyến mới · 🗂 Danh sách Trip (ngăn kéo) · 👤 Hồ sơ �
 
 Chi tiết: [ADR-0002](adr/0002-postgres-tu-host-app-desktop-la-client.md), [ADR-0003](adr/0003-mot-sdk-openai-hai-provider.md), [ADR-0004](adr/0004-goong-cho-ban-do.md).
 
+> **Chỉnh 2026-10-01:** server sẽ thành một cụm 4 service (`api`, `planner`, `llm-gateway`, `places`) sau `nginx`, có Redis (queue, cache, rate limit), bản sao đọc và 2 shard — [ADR-0007](adr/0007-cum-phan-tan-tren-docker-compose.md), [ADR-0008](adr/0008-cap-theo-loai-du-lieu.md), [spec](superpowers/specs/2026-10-01-scale-he-phan-tan-design.md). Sơ đồ dưới đây là **chế độ đơn giản**, vẫn chạy được và là mặc định khi dev. Hợp đồng HTTP + SSE với client không đổi.
+
 ```
 CLIENT (desktop/ + client/)          pywebview + React/Vite/Tailwind + MapLibre (tile/Directions Goong)
    │ HTTP + SSE, JWT                  chỉ lưu JWT
@@ -251,13 +253,16 @@ SERVER (docker compose)
 ## 10. Yêu cầu phi chức năng
 - **Hiệu năng:** event đầu < 2 s; Itinerary < 30 s với OpenAI.
 - **Chịu lỗi:** Goong lỗi → vẽ đường thẳng / dùng km chim bay; Forecast lỗi → bỏ qua; LLM lỗi → thông báo thử lại; stream đứt → báo trong chat.
-- **Demo offline:** demo_cache ghi và phát lại phản hồi theo hash(request).
+- **Demo offline:** cache của `llm-gateway` ở chế độ `replay` phát lại phản hồi theo hash(request) (#14 gộp vào #48).
+- **Quy mô (mới 2026-10-01):** mỗi kỹ thuật — load balancing, caching, rate limit, message queue, microservice, replication, sharding, CAP — phải trình diễn được trên laptop demo bằng load test hoặc tắt node; bảng trình diễn ở spec §12.
 - **Bảo mật:** mọi secret nằm trong `.env`, không commit. Key Goong nằm trong bundle client, chấp nhận cho demo; nếu phát hành phải giới hạn domain hoặc cho server làm proxy.
 - **Tiếng Việt:** toàn bộ UI và câu trả lời AI bằng tiếng Việt.
 - **Đóng gói:** PyInstaller cho client desktop; server bằng `docker compose`.
 
 ## 11. Ngoài phạm vi
-- Phát hành cho người dùng thật, hosting, nhiều máy dùng chung server.
+- Phát hành cho người dùng thật, hosting trên cloud. (Cụm nhiều service trên một laptop đã **vào** phạm vi từ 2026-10-01.)
+- Tự động chuyển node chính khi database chết; thêm shard khi đang chạy; cache theo ngữ nghĩa.
+- Dự đoán động đất, dự đoán độ đông, recommender (cân nhắc và loại 2026-10-01).
 - Nhiều Stay trong một Trip; đặt phòng / thanh toán.
 - Chia sẻ Trip trong app (chỉ xuất PDF).
 - Thuật toán tối ưu thứ tự Stop.
@@ -268,6 +273,8 @@ SERVER (docker compose)
 
 Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2–#41; bảng tổng ở issue #42 và [ROADMAP.md](ROADMAP.md).
 
+> **Chỉnh 2026-10-01:** Thành thêm lát scale hệ phân tán T2–T6 (#48–#52) và mô hình dự đoán mưa T7 (#53); nhận #14 từ Tùng. #37 + #26 dời sang T8.
+>
 > **Chỉnh 2026-09-30:** Thành + AI gánh lõi và đường găng. Việc của thành viên khác là việc thêm, tách rời và cắt được, không chặn ai. Lộ trình theo tuần mới nằm ở [ROADMAP.md](ROADMAP.md).
 
 | Thành viên | Vai | Issue |
@@ -295,6 +302,8 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 Đã cắt (2026-09-29, nhường chỗ §5.11): Inspiration Photo, Destination thứ 3.
 Đã cắt (2026-09-30, nhóm thực tế do một người gánh đường găng): Google login + quên mật khẩu (#12, #13), Traveler Profile + onboarding (#18, #23), cá nhân hoá lát 2 (#38), Destination thứ 2 Đà Nẵng – Hội An (#20).
 
+Lát scale (2026-10-01) cắt theo thứ tự riêng, không đụng danh sách dưới: sharding → tách `places` → đa agent (về agent đơn). Mô hình mưa cắt được độc lập. #26 là thứ cắt đầu tiên nếu T8 trễ.
+
 1. Cinematic recap (giữ nút "Xem hành trình" đơn giản)
 2. ML ranker (giữ bảng B0/B1/B2)
 3. Bản đồ theo thời điểm
@@ -311,6 +320,7 @@ Bắt đầu 2026-09-25. Công việc được theo dõi bằng GitHub Issues #2
 | Làm lại UI tốn thời gian | Chốt mockup trước; giữ nguyên logic SSE hiện có |
 | Revision đổi quá nhiều Stop | Kiểm tra bằng code + golden set Revision |
 | Goong Matrix hết quota / lỗi | Fallback công thức chim bay × 1.3 |
+| Cụm phân tán làm demo kém ổn định | Chế độ đơn giản (`docker compose up`) là đường lui; đóng băng kiến trúc cuối T6 |
 
 ## 15. Câu hỏi mở
 - ~~Có cần ADR cho việc chuyển tính km sang Goong Distance Matrix ở server không?~~ Không (2026-10-01): quyết định đã nằm ở §5, đảo lại chỉ cần bỏ `GOONG_API_KEY`.
