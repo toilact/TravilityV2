@@ -210,22 +210,28 @@ def place_brief(p: Place) -> dict:
             "open_hours": p.open_hours, "description": p.description}
 
 
-def _for_llm(p: Place) -> dict:
+def for_llm(p: Place) -> dict:
     return {"place_id": p.id, "name": p.name, "kind": p.kind, "tags": p.tags, "price": p.price,
             "outdoor": p.outdoor, "open_hours": p.open_hours, "lat": round(p.lat, 4), "lon": round(p.lon, 4)}
 
 
-def run_search(conn, trip: Trip, embed_fn, args: dict, seen: dict[int, Place]) -> tuple[dict, str]:
-    """Tool search_places: thêm kết quả vào `seen`, trả (event tool_call, kết quả cho LLM)."""
+def run_search(conn, trip: Trip, embed_fn, args: dict, seen: dict[int, Place],
+               kinds: tuple[str, ...] | None = None) -> tuple[dict, str]:
+    """Tool search_places: thêm kết quả vào `seen`, trả (event tool_call, kết quả cho LLM).
+
+    `kinds`: chỉ giữ Place thuộc các kind này (agent chuyên gia, spec scale §7).
+    """
     query = str(args.get("query", ""))
     found = search_places(
         conn, trip.destination, embed_fn([query])[0],
         kind=args.get("kind") if args.get("kind") in KINDS else None,
         must_have_tags=[t for t in (args.get("must_have_tags") or []) if t in TAGS],
         exclude_tags=trip.avoided_tags)
+    if kinds:
+        found = [p for p in found if p.kind in kinds]
     seen.update({p.id: p for p in found})
     return ({"type": "tool_call", "name": "search_places", "query": query, "places": [place_brief(p) for p in found]},
-            json.dumps([_for_llm(p) for p in found], ensure_ascii=False))
+            json.dumps([for_llm(p) for p in found], ensure_ascii=False))
 
 
 def itinerary_event(itin: Itinerary, seen: dict[int, Place]) -> dict:
@@ -249,16 +255,19 @@ def previous_brief(itin: Itinerary, places: dict[int, Place]) -> str:
 
 
 def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] | None,
-         hub: Hub | None = None, user_messages: list[str] = (), previous: tuple[Itinerary, dict[int, Place]] | None = None
+         hub: Hub | None = None, user_messages: list[str] = (), previous: tuple[Itinerary, dict[int, Place]] | None = None,
+         seeded: dict[int, Place] | None = None, notes: str = "", max_searches: int | None = None,
          ) -> Iterator[dict]:
-    # chỉ Place AI đã nhận từ search_places (hoặc có trong lịch cũ) mới hợp lệ
-    seen: dict[int, Place] = dict(previous[1]) if previous else {}
+    # chỉ Place AI đã nhận từ search_places, có trong lịch cũ, hoặc do agent chuyên gia chọn (seeded) mới hợp lệ
+    seen: dict[int, Place] = {**(previous[1] if previous else {}), **(seeded or {})}
     pinned = {s.place_id for d in previous[0].days for s in d.stops if s.pinned} if previous else set()
     brief = trip_brief(trip, rain, hub, user_messages)
     if previous:
         brief += "\n\n" + previous_brief(*previous)
+    if notes:
+        brief += "\n\n" + notes
     messages = [{"role": "system", "content": PLAN_PROMPT}, {"role": "user", "content": brief}]
-    submits = invalid = 0
+    submits = invalid = searches = 0
     last: Itinerary | None = None
 
     for _ in range(MAX_STEPS):
@@ -281,8 +290,12 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain: list[int | None] 
             if not isinstance(args, dict):
                 result = "Lỗi: arguments không phải JSON object hợp lệ."
             elif c.function.name == "search_places":
-                ev, result = run_search(conn, trip, embed_fn, args, seen)
-                yield ev
+                searches += 1
+                if max_searches is not None and searches > max_searches:
+                    result = "Lỗi: hết lượt tìm. Dùng Place đã có rồi gọi submit_itinerary."
+                else:
+                    ev, result = run_search(conn, trip, embed_fn, args, seen)
+                    yield ev
             elif c.function.name == "submit_itinerary":
                 try:
                     itin = build_itinerary(trip, Draft.model_validate(args), seen, rain, hub, pinned)

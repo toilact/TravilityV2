@@ -180,3 +180,43 @@ def test_itinerary_places_carry_hours_and_description(conn):
     p = events[-1]["places"][str(a)]
     assert p["open_hours"] == ALL_DAY and p["description"] == ""
     assert events[0]["places"][0]["open_hours"] == ALL_DAY
+
+
+def test_seeded_places_usable_without_search(conn):
+    pid = add_place(conn, "Cafe A", "cafe")
+    client = FakeClient([reply(("submit_itinerary", stops(pid)))])
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, travel_mode="grab")
+    events = list(plan(conn, client, "m", trip, fake_embed, None, seeded=get_places(conn, [pid]),
+                       notes="Chuyên gia đã chọn: Cafe A"))
+    assert [e["type"] for e in events] == ["itinerary"]
+    assert "Chuyên gia đã chọn: Cafe A" in client.calls[0]["messages"][1]["content"]
+
+
+def test_max_searches_refuses_extra_search(conn):
+    pid = add_place(conn, "Cafe A", "cafe")
+    client = FakeClient([reply(("search_places", {"query": "a"})), reply(("search_places", {"query": "b"})),
+                         reply(("submit_itinerary", stops(pid)))])
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, travel_mode="grab")
+    events = list(plan(conn, client, "m", trip, fake_embed, None, max_searches=1))
+    assert [e["type"] for e in events] == ["tool_call", "itinerary"]
+    assert "hết lượt tìm" in tool_messages(client)[1]
+
+
+def test_place_outside_seeded_still_rejected(conn):
+    a, b = add_place(conn, "A", "cafe"), add_place(conn, "B", "cafe")
+    client = FakeClient([reply(("submit_itinerary", stops(b))), reply(("submit_itinerary", stops(a)))])
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, travel_mode="grab")
+    events = list(plan(conn, client, "m", trip, fake_embed, None, seeded=get_places(conn, [a])))
+    assert [s["place_id"] for s in events[-1]["itinerary"]["days"][0]["stops"]] == [a]
+    assert tool_messages(client)[0].startswith("Lỗi")
+
+
+def test_run_search_keeps_only_allowed_kinds(conn):
+    from app.agent import run_search
+    cafe = add_place(conn, "Cafe", "cafe")
+    add_place(conn, "Quán", "an-uong")
+    trip = Trip(destination="da-lat", days=1, budget=10_000_000, travel_mode="grab")
+    seen = {}
+    ev, result = run_search(conn, trip, fake_embed, {"query": "x"}, seen, kinds=("cafe",))
+    assert list(seen) == [cafe] and [p["id"] for p in ev["places"]] == [cafe]
+    assert "Quán" not in result
