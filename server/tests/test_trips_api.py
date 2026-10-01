@@ -427,3 +427,15 @@ def test_simple_mode_has_no_job_id_and_no_job_endpoint_data(client, conn, monkey
     r = client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=h)
     assert events(r)[-1]["type"] == "itinerary" and "x-job-id" not in r.headers
     assert client.get("/jobs/bat-ky/events", headers=h).status_code == 404
+
+
+def test_queue_mode_replan_carries_changes_through_the_queue(client, conn, monkeypatch, planner):
+    pid = add_place(conn, kind="cafe")
+    use_llm(monkeypatch, happy(pid))
+    h = auth(client)
+    trip_id = events(client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=h))[-1]["trip_id"]
+    use_llm(monkeypatch, happy(pid)[1:])
+    r = client.post(f"/trips/{trip_id}/replan", json={"changes": {"budget": 3_000_000}, "message": "tăng lên 3 triệu"},
+                    headers=h)
+    assert events(r)[-1]["type"] == "itinerary" and events(r)[-1]["version"] == 2
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["trip"]["budget"] == 3_000_000

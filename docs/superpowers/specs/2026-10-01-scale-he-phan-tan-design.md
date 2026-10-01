@@ -110,7 +110,7 @@ POST /trips (hoặc /trips/{id}/plan, /trips/{id}/replan)
            job_id = uuid; XADD jobs {job_id, kind, user_id, tham số}
            mở SSE: XREAD events:{job_id} từ đầu, chuyển từng event cho client tới khi gặp event kết thúc
   planner: XREADGROUP jobs → chạy đúng generator hiện có trong một transaction → XADD events:{job_id} cho mỗi event
-           commit → SET job:{job_id}:done → phát event cuối → XADD mục `end` → XACK
+           commit → một MULTI: event cuối + mục `end` + SET job:{job_id}:done → XACK
 ```
 
 - Stream kết thúc bằng mục `end` do worker ghi; event cuối vẫn là `itinerary`, `answer`, `clarify`, `confirm_replan` hoặc `error` như hiện nay. `events:{job_id}` hết hạn sau 1 giờ.
@@ -127,6 +127,7 @@ POST /trips (hoặc /trips/{id}/plan, /trips/{id}/replan)
 - Mỗi việc chạy trong một transaction Postgres. Worker chết → rollback, nên lần chạy lại không thấy Trip hay tin nhắn dở. Lỗi thường (LLM hỏng, yêu cầu sai) được bắt bên trong và vẫn commit như chế độ một tiến trình.
 - Chống chạy trùng: trước khi chạy kiểm `job:{job_id}:done`. Đã có thì chỉ `XACK`.
 - Chạy lại tối đa 1 lần; lần giao thứ ba thì phát `error` và `XACK`.
+- Việc xếp hàng lâu hơn 120 giây mới tới lượt thì không chạy nữa (phát `error`, `XACK`): `api` đã báo lỗi cho client và User có thể đã gửi lại.
 - Ngữ nghĩa giao việc là "ít nhất một lần". Khe hở còn lại: worker chết sau khi commit nhưng trước khi đặt `done` → việc chạy lại và có thể sinh bản ghi trùng. Chấp nhận, ghi trong báo cáo.
 
 ### 5.3 Rate limit theo User

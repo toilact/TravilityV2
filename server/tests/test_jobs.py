@@ -116,3 +116,18 @@ def test_relay_gives_error_after_long_silence(rds, monkeypatch):
 def test_relay_gives_error_when_redis_dies(redis_down):
     out = list(jobs.relay("j4"))
     assert len(out) == 1 and "Mất kết nối" in json.loads(out[0][6:])["message"]
+
+
+def test_relay_quiet_timer_restarts_on_every_event(rds, monkeypatch):
+    """Việc dài hơn 120 giây vẫn sống miễn là còn phát event."""
+    t = [0.0]
+    monkeypatch.setattr(jobs, "_now", lambda: t[0])
+    jobs.publish("j5", "data: 1\n\n")
+    gen = jobs.relay("j5")
+    assert next(gen) == "data: 1\n\n"
+    t[0] = 100
+    jobs.publish("j5", "data: 2\n\n")
+    assert next(gen) == "data: 2\n\n"
+    t[0] = 150  # 150 giây từ đầu nhưng mới 50 giây từ event gần nhất
+    jobs.finish("j5")
+    assert list(gen) == []

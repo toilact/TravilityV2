@@ -43,18 +43,22 @@ def run_job(conn, c, me: str, msg_id: str, f: dict, retry: bool = False) -> None
     """
     job_id = f["job_id"]
 
-    def close():
+    def fail(message: str) -> None:
+        jobs.publish(job_id, trips.sse({"type": "error", "message": message}))
         jobs.finish(job_id)
         c.xack(jobs.STREAM, jobs.GROUP, msg_id)
 
-    if c.exists(f"job:{job_id}:done"):  # đã xong ở lần giao trước
-        return close()
+    if c.exists(f"job:{job_id}:done"):  # đã xong ở lần giao trước, event cuối và end đã ghi cùng lúc với cờ done
+        c.xack(jobs.STREAM, jobs.GROUP, msg_id)
+        return
     if retry:
         delivered = c.xpending_range(jobs.STREAM, jobs.GROUP, msg_id, msg_id, 1)[0]["times_delivered"]
         if delivered > MAX_DELIVERIES:
-            jobs.publish(job_id, trips.sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."}))
-            return close()
+            return fail("Có lỗi khi lập lịch trình, bạn thử lại nhé.")
         jobs.publish(job_id, trips.sse({"type": "thinking", "text": "Đang thử lại…"}))
+    elif time.time() * 1000 - int(msg_id.split("-")[0]) > jobs.QUIET_S * 1000:
+        # Xếp hàng lâu hơn thời gian api chờ: client đã nhận lỗi và có thể đã gửi lại → không chạy việc cũ.
+        return fail("Hệ thống lập lịch đang bận hoặc chưa chạy, bạn thử lại sau nhé.")
     stop = threading.Event()
     threading.Thread(target=_beat, args=(c, msg_id, me, stop), daemon=True).start()
     try:
@@ -64,10 +68,8 @@ def run_job(conn, c, me: str, msg_id: str, f: dict, retry: bool = False) -> None
                 if held is not None:
                     jobs.publish(job_id, held)
                 held = ev
-        c.set(f"job:{job_id}:done", 1, ex=jobs.TTL_S)
-        if held is not None:
-            jobs.publish(job_id, held)
-        close()
+        jobs.complete(job_id, held)
+        c.xack(jobs.STREAM, jobs.GROUP, msg_id)
         logger.info("xong việc %s (%s)", job_id, f["kind"])
     finally:
         stop.set()

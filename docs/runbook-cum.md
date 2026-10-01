@@ -60,7 +60,7 @@ dc logs -f planner
 4. Sau khoảng 20 giây Chat hiện "Đang thử lại…", rồi ra lịch. Danh sách chuyến đi chỉ có một Trip.
 5. Bật lại: `dc up -d`.
 
-Việc chạy lại tối đa một lần. Tắt cả hai `planner` thì request báo lỗi sau 120 giây; việc vẫn nằm trong queue và sẽ chạy khi `planner` bật lại.
+Việc chạy lại tối đa một lần. Tắt cả hai `planner` thì request báo lỗi sau 120 giây; việc đã chờ quá 120 giây bị bỏ khi `planner` bật lại, không chạy muộn.
 
 ### Rate limit
 
@@ -79,4 +79,5 @@ Việc sống 1 giờ. User khác hoặc việc đã hết hạn → 404.
 ### Lưu ý
 
 - Bật lại một bản `api` mà `nginx` không chuyển request tới: `dc restart nginx` (nginx chỉ phân giải tên `api` lúc khởi động).
+- Mỗi stream SSE đang mở giữ một thread của bản `api` (pool 40 thread mỗi bản): khoảng 80 lượt lập lịch đồng thời là trần của cụm 2 `api`.
 - `redis-cli flushdb` xoá cả queue và việc đang chạy; `planner` tự tạo lại consumer group.

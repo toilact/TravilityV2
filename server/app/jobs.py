@@ -78,8 +78,26 @@ def finish(job_id: str) -> None:
     _add(job_id, {"end": "1"})
 
 
+def complete(job_id: str, last: str | None) -> None:
+    """Worker khép việc trong một MULTI: event cuối, mục end và cờ done cùng có hoặc cùng không.
+
+    Tách rời thì Redis chập chờn giữa chừng để lại cờ done mà thiếu event cuối: client không bao giờ thấy lịch.
+    """
+    key, p = f"events:{job_id}", kv.client().pipeline()
+    if last is not None:
+        p.xadd(key, {"data": last})
+    p.xadd(key, {"end": "1"})
+    p.expire(key, TTL_S)
+    p.set(f"job:{job_id}:done", 1, ex=TTL_S)
+    p.execute()
+
+
 def relay(job_id: str):
-    """Phát lại events:{job_id} từ đầu dưới dạng SSE, tới khi gặp mục end. Bản api nào cũng đọc được."""
+    """Phát lại events:{job_id} từ đầu dưới dạng SSE, tới khi gặp mục end. Bản api nào cũng đọc được.
+
+    ponytail: generator đồng bộ, mỗi stream đang mở giữ một thread trong pool 40 thread của một bản api
+    (như chế độ một tiến trình). Cần nhiều stream đồng thời hơn thì viết lại bằng redis.asyncio.
+    """
     c, key, last, quiet_since = kv.client(), f"events:{job_id}", "0", _now()
     while True:
         try:
