@@ -194,3 +194,73 @@ def test_rpm_zero_means_no_limit(up, rds):
     for i in range(5):
         ask(i)
     assert len(up.calls) == 5 and rds.keys("gw:rl:*") == []
+
+
+@pytest.fixture
+def backup(up, monkeypatch):
+    for k, v in dict(llm2_base_url="https://backup.test/v1", llm2_api_key="k2", llm2_model="m2").items():
+        monkeypatch.setattr(settings, k, v)
+    return up
+
+
+@pytest.mark.parametrize("failure", [(429, {}), (500, {}), (httpx.ReadTimeout("chậm"), None)])
+def test_chat_falls_back_and_swaps_model(backup, rds, failure):
+    backup.replies["primary.test"] = failure
+    r = post()
+    assert r.status_code == 200 and r.json() == OK
+    assert backup.hosts == ["primary.test", "backup.test"]
+    second = backup.calls[1]
+    assert json.loads(second.content)["model"] == "m2" and second.headers["authorization"] == "Bearer k2"
+    assert rds.get("gw:stat:fallback") == "1"
+
+
+def test_bad_request_does_not_fall_back(backup):
+    backup.replies["primary.test"] = (400, {"error": {"message": "bad"}})
+    assert post().status_code == 400 and backup.hosts == ["primary.test"]
+
+
+def test_embedding_never_falls_back(backup):
+    backup.replies["embed.test"] = (500, {})
+    assert client.post("/v1/embeddings", json=EMB).status_code == 500
+    assert backup.hosts == ["embed.test"]
+
+
+def test_no_backup_returns_primary_error(up):
+    up.replies["primary.test"] = (500, {"error": {"message": "hỏng"}})
+    assert post().status_code == 500 and up.hosts == ["primary.test"]
+
+
+def test_backup_error_is_returned(backup):
+    backup.replies["primary.test"] = (500, {})
+    backup.replies["backup.test"] = (503, {"error": {"message": "cũng hỏng"}})
+    r = post()
+    assert r.status_code == 503 and r.json()["error"]["message"] == "cũng hỏng"
+
+
+def test_three_failures_skip_primary(backup):
+    backup.replies["primary.test"] = (500, {})
+    for i in range(3):
+        ask(i)
+    assert ask(3).status_code == 200
+    assert backup.hosts == ["primary.test", "backup.test"] * 3 + ["backup.test"]
+
+
+def test_success_resets_failure_count(backup):
+    backup.replies["primary.test"] = (500, {})
+    ask(0)
+    ask(1)
+    del backup.replies["primary.test"]
+    ask(2)  # thành công → đếm lại từ đầu
+    backup.replies["primary.test"] = (500, {})
+    ask(3)
+    ask(4)
+    assert backup.hosts[-2:] == ["primary.test", "backup.test"]  # lần thứ 5 vẫn thử provider chính
+
+
+def test_skipped_primary_without_backup_gives_503(up):
+    up.replies["primary.test"] = (500, {})
+    for i in range(3):
+        ask(i)
+    r = ask(3)
+    assert r.status_code == 503 and "tạm nghỉ" in r.json()["error"]["message"]
+    assert len(up.calls) == 3

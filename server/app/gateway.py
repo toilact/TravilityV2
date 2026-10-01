@@ -17,6 +17,8 @@ from app.config import settings
 
 CHAT, EMBED = "chat/completions", "embeddings"
 MAX_WAIT_S = 30  # hết lượt của provider: chờ tối đa bấy nhiêu rồi mới trả 429
+DOWN_S = 30  # provider chính lỗi FAILS_TO_SKIP lần liên tiếp → bỏ qua nó bấy nhiêu giây
+FAILS_TO_SKIP = 3
 
 app = FastAPI(title="Travility llm-gateway")
 http = httpx.Client(timeout=60)  # test thay bằng MockTransport
@@ -77,12 +79,29 @@ def _take_slot() -> bool:
         waited += pause
 
 
+def _failed(r: httpx.Response) -> bool:
+    return r.status_code == 429 or r.status_code >= 500
+
+
 def _call(path: str, body: dict) -> httpx.Response:
     if path == EMBED:
+        # Không chuyển provider: hai provider cho hai không gian vector khác nhau, đổi là phải import lại Place (ADR-0003).
         return _post(settings.embed_base_url, settings.embed_api_key, path, body)
-    if not _take_slot():
-        return _synthetic(429, "llm-gateway: hết lượt gọi provider trong phút này, thử lại sau ít giây")
-    return _post(settings.llm_base_url, settings.llm_api_key, path, body)
+    r = _synthetic(503, "provider chính đang tạm nghỉ sau nhiều lỗi liên tiếp, thử lại sau ít giây")
+    if not _redis("exists", "gw:down", default=0):
+        if not _take_slot():
+            return _synthetic(429, "llm-gateway: hết lượt gọi provider trong phút này, thử lại sau ít giây")
+        r = _post(settings.llm_base_url, settings.llm_api_key, path, body)
+        if not _failed(r):
+            _redis("delete", "gw:fail")
+            return r
+        if _redis("incr", "gw:fail", default=0) >= FAILS_TO_SKIP:
+            _redis("set", "gw:down", "1", ex=DOWN_S)
+            _redis("delete", "gw:fail")
+    if not settings.llm2_base_url:
+        return r
+    _stat("fallback")
+    return _post(settings.llm2_base_url, settings.llm2_api_key, path, {**body, "model": settings.llm2_model})
 
 
 def _cache_key(path: str, body: dict) -> str:
