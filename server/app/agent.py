@@ -136,6 +136,7 @@ Quy tắc:
 - Mỗi ngày số Stop và khung giờ theo Pace trong đề bài; sắp Stop theo thứ tự địa lý hợp lý, tránh đi vòng.
 - Tôn trọng Tag bắt buộc, tránh Tag cần tránh. Ngày khả năng mưa cao thì ưu tiên Place trong nhà (outdoor=false).
 - Kiểm tra open_hours của Place khi xếp giờ.
+- Chừa thời gian di chuyển giữa hai Stop liên tiếp: Stop sau bắt đầu sau khi Stop trước kết thúc ít nhất 15–30 phút, Place càng xa càng chừa nhiều.
 - reason: 1 câu tiếng Việt nêu vì sao chọn, nhắc Tag/sở thích liên quan.
 - Không tự tính tiền: hệ thống tự tính và báo Conflict.
 - Khi đủ thông tin, gọi submit_itinerary. summary: 1–2 câu tiếng Việt thân thiện tóm tắt chuyến đi."""

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     embed_base_url: str = "https://api.openai.com/v1"
     embed_api_key: str = ""
     embed_model: str = "text-embedding-3-small"
+    goong_api_key: str = ""
 
 
 settings = Settings()

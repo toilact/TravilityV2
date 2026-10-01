@@ -5,6 +5,7 @@ from typing import Literal, NamedTuple
 
 from pydantic import BaseModel
 
+from app import distance
 from app.domain import (DEFAULT_TRAVEL_MODE, INTENT_LABELS, PACE_HOURS, WEEKDAYS, Day, Disruption, Draft, DraftDay,
                         DraftStop, Hub, Itinerary, Place, Trip, intent_weights, place_intents)
 from app.rules import _minutes, build_itinerary, haversine_km, is_open, last_day_limit, make_leg, vnd
@@ -319,8 +320,14 @@ def propose(trip: Trip, itin: Itinerary, places: dict[int, Place], d: Disruption
         if h.mode != "replace":
             continue
         prev, nxt = _neighbors(itin, places, h.day, h.stop, hub)
+        cands = candidates_fn(h.lost, used)
+        mode = trip.travel_mode or DEFAULT_TRAVEL_MODE
+        if prev is not None:  # km thật cho chặng tới/rời từng ứng viên — _reject và features gọi make_leg
+            distance.prefetch([prev], [h.lost, *cands], mode)
+        if nxt is not None:
+            distance.prefetch([h.lost, *cands], [nxt], mode)
         ok = []
-        for c in candidates_fn(h.lost, used):
+        for c in cands:
             why = _reject(trip, aff.base.days[h.day].stops, _weekdays(itin.days[h.day]), h.stop, h.lost, c,
                           prev, nxt, indoor=d.kind == "rain")
             (rejected.append(why) if why else ok.append(c))
