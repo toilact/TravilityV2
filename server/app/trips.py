@@ -26,6 +26,11 @@ router = APIRouter()
 stream_conn = connect  # SSE chạy sau khi handler trả về → tự mở kết nối riêng; test thay bằng kết nối test
 
 
+def _today() -> dt.date:
+    """Hôm nay theo giờ VN. DEMO_TODAY đóng băng ngày để bản ghi replay của llm-gateway trúng cache."""
+    return settings.demo_today or dt.datetime.now(VN_TZ).date()
+
+
 class NewTrip(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     trip_id: int | None = None  # có → tin nhắn tiếp theo của Trip đang mở (PRD §5.4: chat gắn với Trip)
@@ -92,7 +97,7 @@ def log_message(conn, trip_id: int, role: str, text: str, version: int | None = 
 
 
 def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str], previous=None):
-    rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days)
+    rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days, today=_today())
     for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages,
                    previous):
         if ev["type"] == "itinerary":
@@ -191,7 +196,7 @@ def _run(conn, user_id: int, message: str, prev: dict | None = None):
     try:
         trip = parse_trip(client, settings.llm_model, _parse_input(user_messages),
                           {slug: d["name"] for slug, d in dests.items()},
-                          dt.datetime.now(VN_TZ).date())
+                          _today())
         if prev:  # tin nhắn tiếp theo: giữ câu trả lời cũ, không hỏi lại lần 2 (spec §3)
             trip = apply_answers(merge_trip(Trip.model_validate(prev["spec"]), trip), TripAnswers())
     except (UnsupportedDestination, TripParseError) as e:

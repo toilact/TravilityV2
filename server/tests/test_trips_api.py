@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 from contextlib import nullcontext
 
@@ -7,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import forecast, llm, rules, trips
+from app.config import settings
 from app.db import get_conn
 from app.domain import Trip
 from app.main import app
@@ -309,3 +311,15 @@ def test_follow_up_on_other_users_trip_is_404(client, conn, monkeypatch):
     other = auth(client, "binh@example.com")
     r = client.post("/trips", json={"message": "x", "trip_id": evs[-1]["trip_id"]}, headers=other)
     assert r.status_code == 404
+
+
+def test_demo_today_freezes_parse_and_forecast(client, conn, monkeypatch):
+    pid = add_place(conn, name="Cà phê Tùng", kind="cafe")
+    fake = FakeClient(happy(pid))
+    monkeypatch.setattr(llm, "chat_client", lambda: fake)
+    monkeypatch.setattr(settings, "demo_today", dt.date(2026, 12, 1))
+    seen = {}
+    monkeypatch.setattr(forecast, "get_rain_chance", lambda *a, **k: seen.update(k))
+    client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=auth(client))
+    assert "Hôm nay là 2026-12-01" in fake.calls[0]["messages"][0]["content"]
+    assert seen == {"today": dt.date(2026, 12, 1)}
