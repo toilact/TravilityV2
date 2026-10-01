@@ -37,6 +37,10 @@ Không làm: triển khai cloud, tự động chuyển node chính (failover), t
 | S15 | `DEMO_TODAY` đóng băng "hôm nay" ở `parse_trip` và `forecast` | Prompt đọc yêu cầu có ngày hôm nay; không đóng băng thì bản ghi `replay` trượt cache khi sang ngày khác |
 | S16 | `GATEWAY_CHAT_TTL`, `0` = không hết hạn | Bản ghi cho demo và load test phải sống qua nhiều ngày |
 | S17 | Dự báo Open-Meteo cache trong Redis (6 giờ; có `DEMO_TODAY` thì không hết hạn và ghi cả kết quả lỗi) | Khả năng mưa nằm trong brief gửi LLM; mất mạng mà brief đổi thì trượt cache |
+| S18 | Worker chạy mỗi việc trong một transaction; event cuối phát sau khi commit | Generator ghi Trip và tin nhắn trước khi có Itinerary; chạy lại sau khi worker chết không được sinh bản ghi trùng |
+| S19 | Worker báo nhịp tim 5 giây; việc im lặng quá 20 giây mới bị nhận lại | Lập lịch có thể dài hơn 60 giây; không nhịp tim thì worker đang sống bị giành việc |
+| S20 | T3 chỉ làm phía server cho việc nối lại bằng `job_id`; client tự nối lại ở T6 | Giữ "client không sửa" trong T3 |
+| S21 | `api` chờ event tối đa 120 giây im lặng rồi phát `error` | Có `REDIS_URL` mà không có `planner` thì không treo |
 
 S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ script chuyển, thay bằng script tạo dữ liệu mẫu.
 
@@ -84,7 +88,7 @@ Tổng 15 container (1 nginx, 2 api, 5 planner, 1 gateway, 1 places, 1 redis, 4 
 
 | Biến | Thiếu → | Có → |
 |---|---|---|
-| `REDIS_URL` | Việc chạy ngay trong request; cache là dict trong RAM; không rate limit | Queue, cache Redis, rate limit |
+| `REDIS_URL` | Việc chạy ngay trong request; cache là dict trong RAM; không rate limit | Queue (phải có `planner` chạy), cache Redis, rate limit |
 | `PLACES_URL` | Gọi hàm tìm Place trong cùng tiến trình | Gọi HTTP sang `places` |
 | `LLM_BASE_URL` / `EMBED_BASE_URL` | Trỏ thẳng provider (như hiện nay) | Trỏ `http://llm-gateway:8000/v1` |
 | `SHARD_URLS` | Mọi bảng ở `DATABASE_URL` | Danh sách URL shard, cách nhau dấu phẩy |
@@ -105,11 +109,13 @@ POST /trips (hoặc /trips/{id}/plan, /trips/{id}/replan)
   api:     kiểm JWT, quyền trên Trip (404), rate limit (429), tham số (422)   ← lỗi trả trước khi mở stream, như hiện nay
            job_id = uuid; XADD jobs {job_id, kind, user_id, tham số}
            mở SSE: XREAD events:{job_id} từ đầu, chuyển từng event cho client tới khi gặp event kết thúc
-  planner: XREADGROUP jobs → chạy đúng generator hiện có → XADD events:{job_id} cho mỗi event
-           xong: SET job:{job_id}:done, XACK
+  planner: XREADGROUP jobs → chạy đúng generator hiện có trong một transaction → XADD events:{job_id} cho mỗi event
+           commit → một MULTI: event cuối + mục `end` + SET job:{job_id}:done → XACK
 ```
 
-- Event kết thúc: `itinerary`, `answer`, `clarify`, `confirm_replan`, `error` (đúng các event cuối hiện nay). `events:{job_id}` hết hạn sau 1 giờ.
+- Stream kết thúc bằng mục `end` do worker ghi; event cuối vẫn là `itinerary`, `answer`, `clarify`, `confirm_replan` hoặc `error` như hiện nay. `events:{job_id}` hết hạn sau 1 giờ.
+- `api` chờ event mới tối đa 120 giây; quá thì phát `error` "Hệ thống lập lịch đang bận hoặc chưa chạy" và đóng stream.
+- Client rớt giữa chừng thì việc vẫn chạy tới cùng trong worker; mở lại Trip là thấy lịch.
 - Bất kỳ bản `api` nào cũng đọc được `events:{job_id}`, nên load balancer không cần ghim client vào một bản.
 - Client mất kết nối giữa chừng: `GET /jobs/{job_id}/events` phát lại từ đầu stream (cùng định dạng SSE). `api` trả `job_id` trong header `X-Job-Id`. Client hiện tại không cần dùng; thêm vào `api.ts` là việc tuỳ chọn.
 - Disruption → Proposal và "Áp dụng" không qua queue: code thuần, dưới 2 giây, chạy trong `api`.
@@ -117,14 +123,16 @@ POST /trips (hoặc /trips/{id}/plan, /trips/{id}/replan)
 ### 5.2 Worker chết và giao lại việc
 
 - Worker đọc bằng consumer group `planners`. Việc chưa `XACK` nằm trong danh sách chờ.
-- Mỗi worker định kỳ `XAUTOCLAIM` việc đã chờ quá 60 giây (worker giữ nó đã chết) và chạy lại từ đầu; phát `thinking` "Đang thử lại…".
-- Chống lưu trùng: trước khi chạy và trước khi lưu Itinerary, kiểm `job:{job_id}:done`. Đã có thì chỉ `XACK`.
-- Chạy lại tối đa 1 lần; lần thứ hai hỏng thì phát `error` và `XACK`.
-- Ngữ nghĩa giao việc là "ít nhất một lần". Khe hở còn lại: worker chết sau khi lưu Itinerary nhưng trước khi đặt `done` → có thể sinh hai version giống nhau. Chấp nhận, ghi trong báo cáo.
+- Worker đang chạy việc báo nhịp tim mỗi 5 giây (`XCLAIM … JUSTID`: đặt lại thời gian im lặng, không tăng số lần giao). Việc im lặng quá 20 giây nghĩa là worker giữ nó đã chết: worker khác `XAUTOCLAIM` và chạy lại từ đầu, phát `thinking` "Đang thử lại…".
+- Mỗi việc chạy trong một transaction Postgres. Worker chết → rollback, nên lần chạy lại không thấy Trip hay tin nhắn dở. Lỗi thường (LLM hỏng, yêu cầu sai) được bắt bên trong và vẫn commit như chế độ một tiến trình.
+- Chống chạy trùng: trước khi chạy kiểm `job:{job_id}:done`. Đã có thì chỉ `XACK`.
+- Chạy lại tối đa 1 lần; lần giao thứ ba thì phát `error` và `XACK`.
+- Việc xếp hàng lâu hơn 120 giây mới tới lượt thì không chạy nữa (phát `error`, `XACK`): `api` đã báo lỗi cho client và User có thể đã gửi lại.
+- Ngữ nghĩa giao việc là "ít nhất một lần". Khe hở còn lại: worker chết sau khi commit nhưng trước khi đặt `done` → việc chạy lại và có thể sinh bản ghi trùng. Chấp nhận, ghi trong báo cáo.
 
 ### 5.3 Rate limit theo User
 
-- Áp cho các endpoint đẩy việc vào queue. Bộ đếm cửa sổ cố định trong Redis: `rl:{user_id}:{phút}`, giới hạn `PLAN_RPM` (mặc định 5).
+- Áp cho ba endpoint đẩy việc vào queue (`POST /trips`, `/trips/{id}/plan`, `/trips/{id}/replan`), chung một bộ đếm cửa sổ cố định trong Redis: `rl:{user_id}:{phút}`, giới hạn `PLAN_RPM` (mặc định 5, `0` = tắt). Kiểm sau 404/409/422 để request sai không tốn lượt.
 - Vượt: 429, header `Retry-After`, thông điệp tiếng Việt; client hiện bong bóng đỏ như các lỗi khác.
 - Redis lỗi: cho qua (không chặn người dùng vì bộ đếm hỏng).
 - `nginx` `limit_req` theo IP cho `/auth/*` để chặn dò mật khẩu.
@@ -242,7 +250,7 @@ Lựa chọn theo loại dữ liệu ([ADR-0008](../../adr/0008-cap-theo-loai-du
 | Node chết | Hệ thống |
 |---|---|
 | Một bản `api` | `nginx` dồn sang bản còn lại; SSE đang mở ở bản chết bị đứt, client nối lại bằng `job_id` |
-| Một `planner` đang chạy việc | Việc được worker khác nhận lại sau 60 giây (§5.2) |
+| Một `planner` đang chạy việc | Việc được worker khác nhận lại sau 20 giây im lặng (§5.2) |
 | `pg-catalog-replica` | `places` đọc node chính; người dùng không thấy gì |
 | `pg-catalog` (chính) | Chế độ chỉ đọc cho dữ liệu chung: không đăng ký được (503 kèm thông báo). Đăng nhập, tìm Place, **lập lịch và sửa lịch vẫn chạy** vì Trip nằm ở shard |
 | Một shard | User của shard đó nhận 503 "dữ liệu chuyến đi tạm không truy cập được"; User shard kia không bị ảnh hưởng |
@@ -295,7 +303,7 @@ Bật lại node bằng tay (`docker compose start`). Không có bầu chọn no
 
 ## 13. Test
 
-- 203 test hiện có chạy ở chế độ đơn giản, không đổi. Đây là điều kiện bắt buộc cuối mỗi tuần.
+- Test hiện có chạy ở chế độ đơn giản, không đổi. Đây là điều kiện bắt buộc cuối mỗi tuần.
 - Test mới cần Redis thật: thêm service `redis` vào `docker-compose.yml` (chỉ để test dùng; `api` ở chế độ đơn giản không trỏ tới). Không dùng thư viện giả lập Redis.
 - `llm-gateway`: provider giả bằng `httpx.MockTransport` — trúng/trượt cache, `replay` trượt → 503, chờ khi hết lượt, chuyển provider, embedding không chuyển provider.
 - Queue: việc chạy xong phát đủ event theo thứ tự; việc bị bỏ dở được nhận lại; không lưu trùng khi đã có `done`.

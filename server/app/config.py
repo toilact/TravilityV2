@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     goong_api_key: str = ""
     # Scale (spec 2026-10-01 §4): thiếu biến nào thì phần đó chạy như chế độ một tiến trình.
     redis_url: str = ""
+    plan_rpm: int = 5  # việc lập lịch mỗi phút cho một User (cần REDIS_URL); 0 = không giới hạn
     demo_today: dt.date | None = None  # đóng băng "hôm nay" để bản ghi replay của llm-gateway trúng cache
     # llm-gateway (app/gateway.py)
     gateway_cache: Literal["off", "on", "replay"] = "on"

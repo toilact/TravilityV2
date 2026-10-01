@@ -21,7 +21,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Travility", lifespan=lifespan)
 # Client desktop gửi JWT qua header, không dùng cookie → cho mọi origin là an toàn.
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+                   expose_headers=["X-Job-Id"])
 app.include_router(auth.router)
 app.include_router(trips.router)
 app.include_router(proposals.router)

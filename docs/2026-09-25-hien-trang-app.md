@@ -112,7 +112,17 @@ api ──LLM_BASE_URL / EMBED_BASE_URL──► llm-gateway /v1/chat/completion
   chat: giới hạn LLM_RPM (hết lượt thì chờ ≤ 30s), provider chính 429/5xx/timeout → provider phụ LLM2_*
   DEMO_TODAY đóng băng "hôm nay" ở parse_trip + forecast để bản ghi trúng cache ở ngày khác
 ```
-Cách dựng cụm, ghi → phát lại kịch bản demo, xoá cache: [runbook-cum.md](runbook-cum.md). Chế độ `docker compose up` (một tiến trình, không gateway) vẫn là mặc định khi dev.
+Queue lập lịch (`server/app/jobs.py`, `server/app/worker.py`, chỉ khi có `REDIS_URL`, #49):
+```
+client ─► nginx ─► api ×2 ──XADD jobs──► planner ×2 (python -m app.worker)
+                    ▲                        │ chạy trips.JOBS[kind] trong một transaction
+                    └──XREAD events:{job_id}─┘ XADD events:{job_id}; nhịp tim 5 s, nhận lại sau 20 s im lặng
+  rate limit theo User: rl:{user_id}:{phút} ≤ PLAN_RPM → 429 + Retry-After
+  GET /jobs/{job_id}/events: phát lại tiến trình (header X-Job-Id)
+```
+Thiếu `REDIS_URL`: việc chạy ngay trong request như trước.
+
+Cách dựng cụm, ghi → phát lại kịch bản demo, tắt `planner`, xoá cache: [runbook-cum.md](runbook-cum.md). Chế độ `docker compose up` (một tiến trình, không gateway) vẫn là mặc định khi dev.
 
 ### 2.3 Nguyên tắc cần giữ khi mở rộng
 - **LLM chỉ chọn Place và xếp giờ; tiền và Conflict do code tính** (`server/app/rules.py`).

@@ -1,6 +1,6 @@
 # Travility — Roadmap
 
-Cập nhật: **2026-10-01** (Goong Matrix #7, #39; thêm lát scale hệ phân tán + mô hình mưa; xong scale T2 #48); kế hoạch gốc chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
+Cập nhật: **2026-10-01** (Goong Matrix #7, #39; thêm lát scale hệ phân tán + mô hình mưa; xong scale T2 #48, T3 #49); kế hoạch gốc chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
 Nguồn: [PRD](PRD.md) (§5 yêu cầu, §12 lộ trình, §13 thứ tự cắt), [hiện trạng code](2026-09-25-hien-trang-app.md), GitHub Issues #2–#53.
 Bảng theo dõi trên GitHub (tự tick khi đóng issue): **issue #42** (đã ghim).
 
@@ -116,7 +116,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - ~~Inspiration Photo → Suggestion trên map — #10, #27~~ (cắt 2026-09-29, nhường chỗ §5.11)
 
 ## 10. Chất lượng & demo
-- [x] Test tự động: server 243, client 31; đã chạy E2E với Gemini thật
+- [x] Test tự động: server 277, client 31; đã chạy E2E với Gemini thật
 - [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
 - [ ] Đóng gói PyInstaller Mac .app + Windows .exe qua GitHub Actions; app tự bật server (`/health` → `docker compose up -d`) — #15 (Thành, T10)
 - [ ] Kịch bản demo + diễn tập (có một lần tắt mạng) — #29 (Thành, T10)
@@ -124,7 +124,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 ## 11. Hệ phân tán & AI mở rộng (mới 2026-10-01)
 Spec: [scale-he-phan-tan](superpowers/specs/2026-10-01-scale-he-phan-tan-design.md) · [ADR-0007](adr/0007-cum-phan-tan-tren-docker-compose.md) · [ADR-0008](adr/0008-cap-theo-loai-du-lieu.md). Tất cả do Thành làm; chế độ `docker compose up` hiện tại vẫn chạy và là mặc định khi dev.
 - [x] **T2** — #48 — Redis + `llm-gateway`: cache LLM/embedding, chế độ `replay` cho demo mất mạng (gộp demo_cache #14), giới hạn theo provider, chuyển Gemini ↔ OpenAI; cache Goong + dự báo mưa sang Redis; `DEMO_TODAY` đóng băng ngày cho bản ghi ([runbook](runbook-cum.md)) · *caching, rate limit*
-- [ ] **T3** — #49 — Queue Redis Streams + worker `planner`, SSE qua Redis, `nginx` + 2 bản `api`, rate limit theo User · *message queue, load balancing*
+- [x] **T3** — #49 — Queue Redis Streams + worker `planner` (mỗi việc một transaction, nhịp tim, nhận lại việc sau 20 giây), SSE qua Redis, `nginx` + 2 bản `api`, rate limit theo User `PLAN_RPM`, `GET /jobs/{id}/events` ([runbook](runbook-cum.md)). Cụm 8 container dùng khoảng 570 MB RAM · *message queue, load balancing*
 - [ ] **T4** — #50 — Lập lịch đa agent: 3 chuyên gia song song + tổng hợp, cờ `PLANNER_MODE`, so với agent đơn bằng golden set · *AI, distributed* · *cắt thứ 3*
 - [ ] **T5** — #51 — Service `places`, bản sao đọc, 2 shard theo `user_id` · *microservice, replication, sharding* · *sharding cắt thứ 1, tách `places` cắt thứ 2*
 - [ ] **T6** — #52 — Trang "Hệ thống", load test, chế độ chỉ đọc khi node chính chết, runbook tắt node; **đóng băng kiến trúc** · *CAP, bằng chứng*
@@ -141,7 +141,7 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 | T1 | Nền tảng + AI Trip Planner lõi; cá nhân hoá lát 1; Revision giữ mục đích lát A+B | ✅ |
 | T2–T3 (→15/10) | Revision đầy đủ: mở lại Trip + lịch sử chat (#17, #3) → Pinned (#25) → version + quay lại (#24) | ✅ |
 | T2 | **Scale:** Redis + `llm-gateway` (#48, gộp #14) | ✅ |
-| T3 | **Scale:** queue + `planner` + `nginx` + rate limit (#49); kiểm mốc dữ liệu 15/10 | ⏳ |
+| T3 | **Scale:** queue + `planner` + `nginx` + rate limit (#49) ✅; kiểm mốc dữ liệu 15/10 | ⏳ |
 | T4 | UI mới (#2, #16, #4) ✅; #39 ✅ · **Scale:** đa agent (#50) | ⏳ |
 | T5–T6 | Lát C mưa + trễ (#32) ✅; Goong Matrix (#7) ✅ · **Scale:** `places` + bản sao + shard (#51), trang Hệ thống + load test + đóng băng (#52) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
 | T7 | Mô hình dự đoán mưa (#53) · Nhật giọng nói (#8, #9), bảng chi phí (#40) | ⏳ |
@@ -152,6 +152,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14) xong 2026-10-01. Tiếp: lát scale T3 (#49) — lên plan khi bắt đầu tuần; #37 và #26 dời sang T8.
+1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14) và T3 (#49) xong 2026-10-01. Tiếp: lát scale T4 (#50, đa agent) — lên plan khi bắt đầu tuần; #37 và #26 dời sang T8.
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
 3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.
