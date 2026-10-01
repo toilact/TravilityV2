@@ -134,9 +134,9 @@ Khi tài liệu mâu thuẫn: PRD thắng spec; `CONTEXT.md` thắng về cách 
 | Thành viên | Phụ trách |
 |---|---|
 | Đỗ Chí Thành ([@toilact](https://github.com/toilact)) | Agent, luật, sửa lịch, hệ phân tán |
-| Nhật ([@minhatt1901](https://github.com/minhatt1901)) | Client, bản đồ, giao diện |
-| Quân ([@skyduyquan2-sudo](https://github.com/skyduyquan2-sudo)) | Dữ liệu địa điểm, import |
-| Tùng ([@nguyentung206](https://github.com/nguyentung206)) | Đăng nhập, đóng gói |
+| Đặng Trần Minh Nhật ([@minhatt1901](https://github.com/minhatt1901)) | Client, bản đồ, giao diện |
+| Nguyễn Duy Quân ([@skyduyquan2-sudo](https://github.com/skyduyquan2-sudo)) | Dữ liệu địa điểm, import |
+| Nguyễn Thanh Tùng ([@nguyentung206](https://github.com/nguyentung206)) | Đăng nhập, đóng gói |
 
 ## Giấy phép
 
