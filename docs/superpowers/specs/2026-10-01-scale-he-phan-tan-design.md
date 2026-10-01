@@ -45,6 +45,10 @@ Không làm: triển khai cloud, tự động chuyển node chính (failover), t
 | S23 | Agent gửi event và kết quả về điều phối qua một khoá riêng cho mỗi lần chạy (`agent:{uuid}`); điều phối phát lại event | Generator lập lịch không biết `job_id`; lần chạy lại sau khi worker chết không lẫn kết quả cũ |
 | S24 | `agent_jobs` giao nhiều nhất một lần; agent bỏ việc xếp hàng quá 45 giây | Điều phối đã có đường lui là agent đơn; nhận lại việc agent chỉ tốn quota LLM |
 | S25 | Golden set T4: 8 prompt, 1 provider, chạy trong tiến trình; Chat hiện nhãn agent ở dòng tìm kiếm | Đủ để kết luận `multi` có kém `single` không; nhãn là bằng chứng nhìn thấy được khi demo |
+| S26 | Giữ `conn` trong chữ ký các hàm lập lịch; `conn` là kết nối Trip. `places_client` nhận `conn` và chỉ dùng nó để đọc Place ở chế độ đơn giản | 306 test hiện có không đổi; vết cắt nằm ở một module |
+| S27 | `places` chết: `api` dùng bản Destination đọc được gần nhất trong tiến trình | Danh sách Trip và mở Trip cũ vẫn chạy; khớp ADR-0008 (Destination ưu tiên sẵn sàng) |
+| S28 | `seed_users` chỉ tạo User | Trip mẫu sinh bằng luồng thật khi ghi kịch bản demo; không có đường ghi Trip thứ hai |
+| S29 | Worker mở kết nối shard theo từng việc; shard chết → event `error`, không thử lại. Shard chết lúc khởi động không chặn `api` / `planner` | Một shard chết không được kéo theo User của shard kia |
 
 S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ script chuyển, thay bằng script tạo dữ liệu mẫu.
 
@@ -209,12 +213,12 @@ planner (điều phối)
 |---|---|---|
 | `POST /search` | `agent.run_search` phần truy vấn pgvector | Embed truy vấn qua `llm-gateway`; lọc Destination, Tag bắt buộc / tránh như hiện nay |
 | `POST /similar` | `similar_places` của engine thay thế | Dùng embedding đã lưu, không gọi LLM |
-| `GET /places?ids=` | Đọc Place theo id khi mở Trip | — |
+| `GET /places?ids=1&ids=2` | Đọc Place theo id khi mở Trip | — |
 | `GET /destinations` | Danh sách Destination + Hub | — |
 | `POST /distance` | `distance.prefetch` | Gọi Goong; cache km/phút trong Redis thay cho dict trong RAM của #7; cooldown 60 giây khi Goong lỗi giữ nguyên |
 
 - `places` đọc từ `CATALOG_REPLICA_URL`; bản sao chết thì đọc node chính.
-- `places` chết: lập lịch và mở Trip trả lỗi rõ ràng; `POST /distance` lỗi thì `make_leg` dùng chim bay × 1.3 như hiện nay.
+- `places` chết: việc cần tìm hoặc đọc Place trả lỗi rõ ràng (S27); `POST /distance` lỗi thì `make_leg` dùng chim bay × 1.3 như hiện nay.
 - Thiếu `PLACES_URL`: các hàm trên chạy trong cùng tiến trình. Một lớp mỏng `app/places_client.py` chọn giữa hai cách; code gọi không biết khác biệt.
 - `scripts/import_places` ghi vào node chính của pg-catalog.
 
@@ -266,7 +270,7 @@ Lựa chọn theo loại dữ liệu ([ADR-0008](../../adr/0008-cap-theo-loai-du
 | Một shard | User của shard đó nhận 503 "dữ liệu chuyến đi tạm không truy cập được"; User shard kia không bị ảnh hưởng |
 | `redis` | Không lập lịch được (503); xem Trip, ghim, Disruption → Proposal vẫn chạy; rate limit cho qua |
 | `llm-gateway` hoặc provider | Việc lỗi → thử lại 1 lần → event `error` như hiện nay |
-| `places` | Lập lịch và mở Trip báo lỗi; km quay về ước tính |
+| `places` | Lập lịch, Disruption → Proposal và khôi phục version báo lỗi; danh sách Trip, mở Trip, ghim vẫn chạy (Destination lấy bản đọc được gần nhất, S27); km quay về ước tính |
 
 Bật lại node bằng tay (`docker compose start`). Không có bầu chọn node chính.
 

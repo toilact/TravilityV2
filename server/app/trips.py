@@ -14,16 +14,17 @@ from app.agent import (TripParseError, UnsupportedDestination, apply_answers, me
                        parse_trip, plan)
 from app.domain import Hub, Itinerary, Trip, TripAnswers
 from app.followup import changed_trip, followup
-from app.auth import current_user
+from app.auth import current_user, get_shard
 from app.config import settings
-from app.db import connect, get_conn
-from app.places import get_places, list_destinations
+from app.db import get_conn, shard_conn
+from app.places_client import PLACES_DOWN, PlacesDown, get_places, list_destinations
 
 logger = logging.getLogger(__name__)
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 router = APIRouter()
-stream_conn = connect  # SSE chạy sau khi handler trả về → tự mở kết nối riêng; test thay bằng kết nối test
+# SSE chạy sau khi handler trả về → tự mở kết nối riêng tới shard của User; test thay bằng kết nối test
+stream_conn = shard_conn
 
 
 def _today() -> dt.date:
@@ -52,6 +53,9 @@ def guarded(events):
     except openai.OpenAIError:
         logger.exception("Lỗi gọi AI khi lập lịch trình")
         yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
+    except PlacesDown:
+        logger.exception("Service places không trả lời")
+        yield sse({"type": "error", "message": PLACES_DOWN})
     except Exception:
         logger.exception("Lỗi không lường trước khi lập lịch trình")
         yield sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."})
@@ -66,14 +70,14 @@ def _stream(kind: str, user_id: int, **params) -> StreamingResponse:
         return StreamingResponse(jobs.relay(job_id), media_type="text/event-stream", headers={"X-Job-Id": job_id})
 
     def events():
-        with stream_conn() as conn:
+        with stream_conn(user_id) as conn:
             yield from guarded(JOBS[kind](conn, user_id, **params))
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.post("/trips")
-def create_trip(body: NewTrip, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+def create_trip(body: NewTrip, user_id: int = Depends(current_user), conn=Depends(get_shard)):
     if body.trip_id is not None and not conn.execute(
             "SELECT 1 FROM trips WHERE id = %s AND user_id = %s", (body.trip_id, user_id)).fetchone():
         raise HTTPException(404, "Không tìm thấy chuyến đi")
@@ -271,7 +275,7 @@ def job_events(job_id: str, user_id: int = Depends(current_user)):
 
 
 @router.post("/trips/{trip_id}/plan")
-def plan_trip(trip_id: int, answers: TripAnswers, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+def plan_trip(trip_id: int, answers: TripAnswers, user_id: int = Depends(current_user), conn=Depends(get_shard)):
     row = conn.execute("SELECT spec, user_messages FROM trips WHERE id = %s AND user_id = %s",
                        (trip_id, user_id)).fetchone()
     if not row:
@@ -292,7 +296,7 @@ class Replan(BaseModel):
 
 
 @router.post("/trips/{trip_id}/replan")
-def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user), conn=Depends(get_conn)):
+def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user), conn=Depends(get_shard)):
     """Người dùng xác nhận đổi Trip (event confirm_replan) → lập lại, gửi kèm lịch cũ làm gợi ý."""
     row = conn.execute("SELECT spec, user_messages FROM trips WHERE id = %s AND user_id = %s",
                        (trip_id, user_id)).fetchone()
@@ -307,16 +311,17 @@ def replan_trip(trip_id: int, body: Replan, user_id: int = Depends(current_user)
 
 
 @router.get("/trips")
-def list_trips(user_id: int = Depends(current_user), conn=Depends(get_conn)):
-    return conn.execute(
-        """SELECT t.id, t.spec, t.created_at, d.name AS destination_name
-           FROM trips t LEFT JOIN destinations d ON d.slug = t.spec->>'destination'
-           WHERE t.user_id = %s ORDER BY t.id DESC""", (user_id,)).fetchall()
+def list_trips(user_id: int = Depends(current_user), conn=Depends(get_shard)):
+    # Trip ở shard, Destination ở database chung: không JOIN được, ghép tên bằng code (spec scale §9.1)
+    rows = conn.execute("SELECT id, spec, created_at FROM trips WHERE user_id = %s ORDER BY id DESC",
+                        (user_id,)).fetchall()
+    names = {d["slug"]: d["name"] for d in list_destinations(conn)}
+    return [{**r, "destination_name": names.get(r["spec"].get("destination"))} for r in rows]
 
 
 @router.get("/trips/{trip_id}")
 def get_trip(trip_id: int, version: int | None = None, user_id: int = Depends(current_user),
-             conn=Depends(get_conn)):
+             conn=Depends(get_shard)):
     trip = conn.execute("SELECT id, spec, pinned_place_ids FROM trips WHERE id = %s AND user_id = %s",
                         (trip_id, user_id)).fetchone()
     if not trip:

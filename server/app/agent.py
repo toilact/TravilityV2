@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.domain import (DEFAULT_TRAVEL_MODE, HHMM, KINDS, PACE_HOURS, PACE_STOPS, TAGS, ArrivalMode, Draft, Hub,
                         Itinerary, Place, TravelMode, Trip, TripAnswers)
-from app.places import search_places
+from app.places_client import search_places
 from app.rules import ARRIVAL_BUFFER_MIN, DEPARTURE_BUFFER_MIN, InvalidDraft, build_itinerary, vnd
 
 
@@ -223,7 +223,7 @@ def run_search(conn, trip: Trip, embed_fn, args: dict, seen: dict[int, Place],
     """
     query = str(args.get("query", ""))
     found = search_places(
-        conn, trip.destination, embed_fn([query])[0],
+        conn, trip.destination, query, embed_fn,
         kind=args.get("kind") if args.get("kind") in KINDS else None,
         must_have_tags=[t for t in (args.get("must_have_tags") or []) if t in TAGS],
         exclude_tags=trip.avoided_tags)

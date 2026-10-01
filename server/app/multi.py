@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
+from contextlib import nullcontext
 
 from redis.exceptions import RedisError
 
@@ -15,11 +16,10 @@ from app.agent import PLAN_TOOLS, for_llm, run_search, trip_brief
 from app.config import settings
 from app.db import connect
 from app.domain import PACE_STOPS, Place, Trip
-from app.places import get_places
+from app.places_client import get_places
 
 logger = logging.getLogger(__name__)
 _now = time.monotonic
-agent_conn = connect  # mỗi chuyên gia một kết nối riêng; test thay bằng kết nối test
 AGENT_WAIT_S = 45  # chờ đủ danh sách tối đa bấy nhiêu giây rồi quay về agent đơn
 FALLBACK_TEXT = "Chuyển sang lập lịch thường…"
 AGENT_STREAM, AGENT_GROUP = "agent_jobs", "agents"
@@ -34,6 +34,12 @@ ROLES = {
     "cho-o": ("Chỗ ở", ("cho-o",), "chỗ ở hợp Budget và Tag"),
 }
 MAX_SEARCHES = 4
+
+
+def agent_conn():
+    """Mỗi chuyên gia một kết nối riêng để đọc Place; có PLACES_URL thì không cần database. Test thay bằng kết nối test."""
+    return nullcontext(None) if settings.places_url else connect()
+
 
 SPECIALIST_PROMPT = """Bạn là chuyên gia {label} trong nhóm lập lịch du lịch cho người Việt.
 Việc của bạn: chọn danh sách ngắn khoảng {n} Place — {task}. Một agent khác sẽ xếp lịch từ danh sách này.

@@ -64,6 +64,6 @@ def import_file(conn, path, embed_fn) -> int:
 if __name__ == "__main__":
     folder = Path(sys.argv[1] if len(sys.argv) > 1 else "../data/places")
     with connect() as conn:
-        apply_schema(conn)
+        apply_schema(conn, shard=False)  # import chỉ cần bảng chung
         for f in sorted(folder.glob("*.json")):
             print(f.name, import_file(conn, f, llm.embed))

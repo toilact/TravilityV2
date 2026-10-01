@@ -16,7 +16,7 @@ from app import agent, forecast, llm, multi, trips
 from app.config import settings
 from app.db import connect
 from app.domain import TripAnswers
-from app.places import list_destinations
+from app.places_client import list_destinations
 
 _now, _sleep = time.monotonic, time.sleep  # test thay bằng đồng hồ giả
 _DATE = (dt.date.today() + dt.timedelta(days=10)).isoformat()

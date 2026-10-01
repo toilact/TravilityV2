@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.config import settings
-from app.db import get_conn
+from app.db import SHARD_DOWN, get_conn, shard_conn
 
 router = APIRouter(prefix="/auth")
 bearer = HTTPBearer(auto_error=False)
@@ -38,6 +38,18 @@ def current_user(cred: HTTPAuthorizationCredentials | None = Depends(bearer)) ->
         return int(jwt.decode(cred.credentials, settings.jwt_secret, algorithms=["HS256"])["sub"])
     except jwt.PyJWTError:
         raise HTTPException(401, "Phiên đăng nhập hết hạn, đăng nhập lại nhé") from None
+
+
+def get_shard(user_id: int = Depends(current_user)):
+    """Kết nối tới shard của User đang đăng nhập; shard chết → 503 chỉ cho User của shard đó (spec scale §10)."""
+    try:
+        conn = shard_conn(user_id)
+    except psycopg.OperationalError:
+        raise HTTPException(503, SHARD_DOWN) from None
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 @router.post("/register", status_code=201)
