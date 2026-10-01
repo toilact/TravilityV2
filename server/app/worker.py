@@ -1,7 +1,9 @@
-"""planner: nhận việc lập lịch từ Redis Streams và chạy đúng các generator của app.trips (spec scale §5).
+"""planner: nhận việc từ Redis Streams (spec scale §5, §7).
 
-Chạy: python -m app.worker
+Chạy: python -m app.worker                      (điều phối: stream jobs, chạy các generator của app.trips)
+      python -m app.worker --stream agent_jobs  (agent chuyên gia của lập lịch đa agent)
 """
+import argparse
 import json
 import logging
 import socket
@@ -10,7 +12,7 @@ import time
 
 from redis.exceptions import RedisError, ResponseError
 
-from app import jobs, kv, trips
+from app import jobs, kv, multi, trips
 from app.db import apply_schema, connect
 
 logger = logging.getLogger(__name__)
@@ -28,9 +30,9 @@ def _beat(c, msg_id: str, me: str, stop: threading.Event) -> None:
             pass
 
 
-def ensure_group(c) -> None:
+def ensure_group(c, stream: str = jobs.STREAM, group: str = jobs.GROUP) -> None:
     try:
-        c.xgroup_create(jobs.STREAM, jobs.GROUP, id="0", mkstream=True)
+        c.xgroup_create(stream, group, id="0", mkstream=True)
     except ResponseError as e:
         if "BUSYGROUP" not in str(e):
             raise
@@ -91,17 +93,43 @@ def step(conn, c, me: str) -> bool:
     return True
 
 
+def agent_step(c, me: str) -> bool:
+    """Vai agent: nhận và chạy tối đa một việc từ agent_jobs; True nếu có việc.
+
+    Giao nhiều nhất một lần: XACK dù lỗi, không nhận lại. Thiếu kết quả thì điều phối tự quay về agent đơn (spec §7).
+    """
+    got = c.xreadgroup(multi.AGENT_GROUP, me, {multi.AGENT_STREAM: ">"}, count=1, block=500)
+    if not got:
+        return False
+    msg_id, f = got[0][1][0]
+    try:
+        # Xếp hàng lâu hơn thời gian điều phối chờ: nó đã chuyển sang agent đơn → không tốn quota LLM nữa.
+        if time.time() * 1000 - int(msg_id.split("-")[0]) <= multi.AGENT_WAIT_S * 1000:
+            multi.serve(c, f)
+            logger.info("agent %s xong việc %s", f["role"], f["key"])
+    finally:
+        c.xack(multi.AGENT_STREAM, multi.AGENT_GROUP, msg_id)
+    return True
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--stream", choices=[jobs.STREAM, multi.AGENT_STREAM], default=jobs.STREAM)
+    agent = ap.parse_args().stream == multi.AGENT_STREAM
     c, me = kv.client(), socket.gethostname()
     if c is None:
         raise SystemExit("planner cần REDIS_URL")
     with connect() as conn:
         apply_schema(conn)
-    logger.info("planner %s sẵn sàng", me)
+    logger.info("planner %s sẵn sàng (%s)", me, "agent" if agent else "điều phối")
     conn = None
     while True:
         try:
+            if agent:  # mỗi việc tự mở kết nối đọc bảng places (multi.agent_conn)
+                ensure_group(c, multi.AGENT_STREAM, multi.AGENT_GROUP)
+                agent_step(c, me)
+                continue
             ensure_group(c)  # mỗi vòng: `redis-cli flushdb` trong runbook xoá luôn consumer group
             conn = conn or connect()
             step(conn, c, me)

@@ -3,7 +3,8 @@ from contextlib import nullcontext
 
 import pytest
 
-from app import multi, rules
+from app import kv, multi, rules
+from app.config import settings
 from app.domain import Trip
 from tests.fakes import RoleClient, reply
 from tests.helpers import add_place, unit_vec
@@ -141,3 +142,31 @@ def test_slow_agent_falls_back_after_deadline(conn, monkeypatch):
     assert time.monotonic() - t0 < 0.8  # không chờ agent chậm
     assert {"type": "thinking", "text": multi.FALLBACK_TEXT} in events and used(events) == [cafe]
     time.sleep(0.7)  # để thread chậm kết thúc trước khi fixture đóng kết nối
+
+
+def test_remote_without_agent_worker_falls_back(conn, rds, monkeypatch):
+    monkeypatch.setattr(multi, "AGENT_WAIT_S", 0.6)
+    cafe = add_place(conn, "Cafe", "cafe")
+    rc = RoleClient({SYNTH: [SEARCH, reply(("submit_itinerary", stops(cafe)))]})
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    assert {"type": "thinking", "text": multi.FALLBACK_TEXT} in events and used(events) == [cafe]
+    assert rds.xlen(multi.AGENT_STREAM) == 2  # việc đã gửi, không ai nhận
+
+
+def test_remote_redis_down_falls_back_at_once(conn, monkeypatch):
+    monkeypatch.setattr(settings, "redis_url", "redis://localhost:1/0")
+    monkeypatch.setattr(kv, "_client", None)
+    cafe = add_place(conn, "Cafe", "cafe")
+    rc = RoleClient({SYNTH: [SEARCH, reply(("submit_itinerary", stops(cafe)))]})
+    t0 = time.monotonic()
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    assert time.monotonic() - t0 < 5 and used(events) == [cafe]
+    monkeypatch.setattr(kv, "_client", None)
+
+
+def test_local_flag_uses_threads_even_with_redis(conn, rds):
+    food, cafe = add_place(conn, "Quán", "an-uong"), add_place(conn, "Cafe", "cafe")
+    rc = RoleClient({FOOD: [SEARCH, pick(food)], SIGHT: [SEARCH, pick(cafe)],
+                     SYNTH: [reply(("submit_itinerary", stops(cafe)))]})
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None, local=True))
+    assert used(events) == [cafe] and rds.xlen(multi.AGENT_STREAM) == 0

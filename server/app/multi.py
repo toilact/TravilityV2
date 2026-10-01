@@ -5,10 +5,14 @@ import logging
 import queue
 import threading
 import time
+import uuid
 from collections.abc import Iterator
 
-from app import agent
+from redis.exceptions import RedisError
+
+from app import agent, kv, llm
 from app.agent import PLAN_TOOLS, for_llm, run_search, trip_brief
+from app.config import settings
 from app.db import connect
 from app.domain import PACE_STOPS, Place, Trip
 from app.places import get_places
@@ -18,6 +22,8 @@ _now = time.monotonic
 agent_conn = connect  # mỗi chuyên gia một kết nối riêng; test thay bằng kết nối test
 AGENT_WAIT_S = 45  # chờ đủ danh sách tối đa bấy nhiêu giây rồi quay về agent đơn
 FALLBACK_TEXT = "Chuyển sang lập lịch thường…"
+AGENT_STREAM, AGENT_GROUP = "agent_jobs", "agents"
+KEY_TTL_S = 300  # khoá agent:{uuid} của một lần chạy sống bấy nhiêu giây
 
 # role → (nhãn, các kind được chọn, việc cần làm)
 ROLES = {
@@ -138,6 +144,46 @@ def _local(client, model: str, trip: Trip, embed_fn, rain, user_messages: list[s
     return recv
 
 
+def _remote(trip: Trip, rain, user_messages: list[str], roles: list[str]):
+    """Có Redis: mỗi role một việc trong agent_jobs; planner-agent RPUSH event và kết quả về khoá của lần chạy này.
+
+    Việc mang nguyên Trip: điều phối đang ở trong transaction chưa commit nên agent không đọc được Trip từ database.
+    Redis lỗi → thông điệp lỗi, điều phối quay về agent đơn.
+    """
+    c, key = kv.client(), f"agent:{uuid.uuid4().hex}"
+    down = {"role": "", "error": "redis"}
+    try:
+        for role in roles:
+            c.xadd(AGENT_STREAM, {"key": key, "role": role, "trip": trip.model_dump_json(), "rain": json.dumps(rain),
+                                  "user_messages": json.dumps(user_messages, ensure_ascii=False)},
+                   maxlen=1000, approximate=True)
+    except RedisError:
+        return lambda timeout: down
+
+    def recv(timeout: float) -> dict | None:
+        try:
+            got = c.blpop(key, timeout=timeout)
+        except RedisError:
+            return down
+        return json.loads(got[1]) if got else None
+
+    return recv
+
+
+def serve(c, f: dict) -> None:
+    """Phía planner-agent: chạy chuyên gia cho việc f, đẩy event và kết quả (hoặc lỗi) vào f["key"]."""
+    def push(m: dict) -> None:
+        c.rpush(f["key"], json.dumps(m, ensure_ascii=False))
+        c.expire(f["key"], KEY_TTL_S)
+
+    try:
+        trip = Trip.model_validate_json(f["trip"])
+    except ValueError as e:  # việc hỏng: báo lỗi về điều phối thay vì để nó chờ hết 45 giây
+        return push({"role": f["role"], "error": str(e)})
+    _work(push, llm.chat_client(), settings.llm_model, trip, f["role"], llm.embed,
+          json.loads(f["rain"]), json.loads(f["user_messages"]))
+
+
 def gather(recv, roles: list[str]):
     """Phát lại event của các chuyên gia; return danh sách kết quả, hoặc None khi có agent lỗi hay quá hạn."""
     deadline, results = _now() + AGENT_WAIT_S, []
@@ -171,7 +217,8 @@ def plan(conn, client, model: str, trip: Trip, embed_fn, rain, hub=None, user_me
     """Cùng hợp đồng với agent.plan. Thiếu danh sách của bất kỳ chuyên gia nào → agent đơn nguyên bản (spec §7)."""
     roles = roles_for(trip)
     yield {"type": "thinking", "text": "Các chuyên gia đang tìm địa điểm…"}
-    recv = _local(client, model, trip, embed_fn, rain, list(user_messages), roles)
+    recv = (_local(client, model, trip, embed_fn, rain, list(user_messages), roles)
+            if local or kv.client() is None else _remote(trip, rain, list(user_messages), roles))
     results = yield from gather(recv, roles)
     if results is None:
         yield {"type": "thinking", "text": FALLBACK_TEXT}

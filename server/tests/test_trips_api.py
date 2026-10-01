@@ -462,3 +462,31 @@ def test_multi_mode_plans_with_specialists_in_threads(client, conn, monkeypatch)
     assert {e.get("agent") for e in evs if e["type"] == "tool_call"} == {"an-uong", "tham-quan"}
     assert evs[-1]["type"] == "itinerary" and evs[-1]["version"] == 1
     assert client.get(f"/trips/{evs[-1]['trip_id']}", headers=h).json()["version"] == 1
+
+
+@pytest.fixture
+def agents(conn, rds, monkeypatch):
+    """Một planner-agent chạy trong thread, dùng chung kết nối test."""
+    monkeypatch.setattr(multi, "agent_conn", lambda: nullcontext(conn))
+    worker.ensure_group(rds, multi.AGENT_STREAM, multi.AGENT_GROUP)
+    stop = threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            worker.agent_step(rds, "a1")
+
+    t = threading.Thread(target=loop)
+    t.start()
+    yield
+    stop.set()
+    t.join()
+
+
+def test_queue_mode_multi_runs_specialists_on_agent_worker(client, conn, rds, monkeypatch, planner, agents):
+    monkeypatch.setattr(settings, "planner_mode", "multi")
+    rc = multi_llm(add_place(conn, "Quán", "an-uong"), add_place(conn, "Cafe", "cafe"))
+    monkeypatch.setattr(llm, "chat_client", lambda: rc)
+    evs = events(client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=auth(client)))
+    assert {e.get("agent") for e in evs if e["type"] == "tool_call"} == {"an-uong", "tham-quan"}
+    assert evs[-1]["type"] == "itinerary"
+    assert rds.xpending(multi.AGENT_STREAM, multi.AGENT_GROUP)["pending"] == 0
