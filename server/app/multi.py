@@ -200,7 +200,8 @@ def gather(recv, roles: list[str]):
             return None
         else:
             results.append(m)
-    return results
+    # thứ tự role cố định, không theo thứ tự về đích: brief của agent tổng hợp phải giống nhau giữa các lần chạy
+    return sorted(results, key=lambda r: roles.index(r["role"]))
 
 
 def _notes(results: list[dict], places: dict[int, Place]) -> str:

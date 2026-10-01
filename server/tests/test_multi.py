@@ -170,3 +170,18 @@ def test_local_flag_uses_threads_even_with_redis(conn, rds):
                      SYNTH: [reply(("submit_itinerary", stops(cafe)))]})
     events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None, local=True))
     assert used(events) == [cafe] and rds.xlen(multi.AGENT_STREAM) == 0
+
+
+def test_notes_order_is_fixed_whichever_agent_finishes_first(conn):
+    """Brief của agent tổng hợp phải y hệt giữa các lần chạy để cache / replay của llm-gateway trúng."""
+    food, cafe = add_place(conn, "Quán", "an-uong"), add_place(conn, "Cafe", "cafe")
+
+    def late():
+        time.sleep(0.3)
+        return SEARCH
+
+    rc = RoleClient({FOOD: [late, pick(food)], SIGHT: [SEARCH, pick(cafe)],
+                     SYNTH: [reply(("submit_itinerary", stops(cafe)))]})
+    list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    brief = rc.calls_for(SYNTH)[0]["messages"][1]["content"]
+    assert brief.index("Ăn uống —") < brief.index("Tham quan —")
