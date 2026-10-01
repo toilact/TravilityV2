@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, ValidationError
 
-from app import forecast, llm
+from app import forecast, jobs, llm
 from app.agent import (TripParseError, UnsupportedDestination, apply_answers, merge_trip, missing_questions,
                        parse_trip, plan)
 from app.domain import Hub, Itinerary, Trip, TripAnswers
@@ -58,7 +58,13 @@ def guarded(events):
 
 
 def _stream(kind: str, user_id: int, **params) -> StreamingResponse:
-    """Chạy việc JOBS[kind] trong SSE. params phải JSON được: chế độ queue gửi chúng qua Redis."""
+    """Chạy việc JOBS[kind] trong SSE. Có REDIS_URL → đẩy vào queue cho planner và chuyển event về (spec scale §5);
+    thiếu → chạy ngay trong request. params phải JSON được."""
+    if settings.redis_url:
+        jobs.check_rate(user_id)
+        job_id = jobs.enqueue(kind, user_id, params)
+        return StreamingResponse(jobs.relay(job_id), media_type="text/event-stream", headers={"X-Job-Id": job_id})
+
     def events():
         with stream_conn() as conn:
             yield from guarded(JOBS[kind](conn, user_id, **params))
@@ -253,6 +259,14 @@ def _job_replan(conn, user_id: int, trip_id: int, changes: dict, message: str):
 
 # Việc lập lịch theo tên: chạy trong request (chế độ một tiến trình) hoặc trong worker planner (spec scale §5).
 JOBS = {"message": _job_message, "plan": _job_plan, "replan": _job_replan}
+
+
+@router.get("/jobs/{job_id}/events")
+def job_events(job_id: str, user_id: int = Depends(current_user)):
+    """Phát lại tiến trình của một việc từ đầu (client mất kết nối giữa chừng). Việc sống 1 giờ."""
+    if jobs.owner(job_id) != user_id:
+        raise HTTPException(404, "Không tìm thấy việc")
+    return StreamingResponse(jobs.relay(job_id), media_type="text/event-stream")
 
 
 @router.post("/trips/{trip_id}/plan")

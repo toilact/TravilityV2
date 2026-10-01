@@ -1,5 +1,7 @@
 import datetime as dt
 import json
+import threading
+import time
 from contextlib import nullcontext
 
 import httpx
@@ -7,7 +9,7 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from app import forecast, llm, rules, trips
+from app import forecast, jobs, kv, llm, rules, trips, worker
 from app.config import settings
 from app.db import get_conn
 from app.domain import Trip
@@ -349,3 +351,79 @@ def test_guarded_turns_exception_into_error_event():
     out = list(trips.guarded(boom()))
     assert out[0] == "a"
     assert json.loads(out[1][6:]) == {"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."}
+
+
+@pytest.fixture
+def planner(conn, rds):
+    """Chế độ queue: REDIS_URL trỏ Redis test và một planner chạy trong thread, dùng chung kết nối test."""
+    worker.ensure_group(rds)
+    stop = threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            worker.step(conn, rds, "w1")
+
+    t = threading.Thread(target=loop)
+    t.start()
+    yield
+    stop.set()
+    t.join()
+
+
+def test_queue_mode_streams_same_events_and_replays(client, conn, monkeypatch, planner):
+    pid = add_place(conn, kind="cafe")
+    use_llm(monkeypatch, happy(pid))
+    h = auth(client)
+    r = client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers={**h, "Origin": "http://app"})
+    assert [e["type"] for e in events(r)] == ["thinking", "trip", "tool_call", "itinerary"]
+    assert "x-job-id" in r.headers["access-control-expose-headers"].lower()
+    trip_id = events(r)[-1]["trip_id"]
+    assert client.get(f"/trips/{trip_id}", headers=h).json()["version"] == 1
+
+    job_id = r.headers["x-job-id"]
+    again = client.get(f"/jobs/{job_id}/events", headers=h)
+    assert again.text == r.text and again.headers["content-type"].startswith("text/event-stream")
+    assert client.get(f"/jobs/{job_id}/events", headers=auth(client, "binh@example.com")).status_code == 404
+    assert client.get("/jobs/khong-co/events", headers=h).status_code == 404
+    assert client.get(f"/jobs/{job_id}/events").status_code == 401
+
+
+def test_queue_mode_clarify_then_plan(client, conn, monkeypatch, planner):
+    pid = add_place(conn, kind="cafe")
+    h, evs = ask_first(conn, client, monkeypatch)
+    assert evs[-1]["type"] == "clarify"
+    use_llm(monkeypatch, happy(pid)[1:])
+    r = client.post(f"/trips/{evs[-1]['trip_id']}/plan", json={"travel_mode": "grab"}, headers=h)
+    assert events(r)[-1]["type"] == "itinerary" and r.headers["x-job-id"]
+
+
+def test_queue_mode_over_limit_is_429_and_nothing_is_queued(client, conn, rds):
+    h = auth(client)
+    uid = conn.execute("SELECT id FROM users").fetchone()["id"]
+    this_minute = int(time.time() // 60)
+    for m in (this_minute, this_minute + 1):  # cả phút sau, phòng khi test chạy ngang ranh giới phút
+        rds.set(f"rl:{uid}:{m}", 5)
+    r = client.post("/trips", json={"message": "x"}, headers=h)
+    assert r.status_code == 429 and int(r.headers["retry-after"]) >= 1 and "quá nhanh" in r.json()["detail"]
+    assert rds.xlen("jobs") == 0
+
+
+def test_queue_mode_bad_request_does_not_use_a_slot(client, conn, rds):
+    r = client.post("/trips", json={"message": "x", "trip_id": 999}, headers=auth(client))
+    assert r.status_code == 404 and rds.keys("rl:*") == []
+
+
+def test_queue_mode_redis_down_is_503(client, monkeypatch):
+    monkeypatch.setattr(settings, "redis_url", "redis://localhost:1/0")
+    monkeypatch.setattr(kv, "_client", None)
+    r = client.post("/trips", json={"message": "x"}, headers=auth(client))
+    assert r.status_code == 503 and "tạm không dùng được" in r.json()["detail"]
+
+
+def test_simple_mode_has_no_job_id_and_no_job_endpoint_data(client, conn, monkeypatch):
+    pid = add_place(conn, kind="cafe")
+    use_llm(monkeypatch, happy(pid))
+    h = auth(client)
+    r = client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=h)
+    assert events(r)[-1]["type"] == "itinerary" and "x-job-id" not in r.headers
+    assert client.get("/jobs/bat-ky/events", headers=h).status_code == 404
