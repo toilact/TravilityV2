@@ -15,7 +15,7 @@ from app.agent import PLAN_TOOLS, for_llm, run_search, trip_brief
 from app.config import settings
 from app.db import connect
 from app.domain import PACE_STOPS, Place, Trip
-from app.places import get_places
+from app.places_client import get_places
 
 logger = logging.getLogger(__name__)
 _now = time.monotonic

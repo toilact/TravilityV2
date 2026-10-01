@@ -6,7 +6,7 @@ from app.auth import current_user
 from app.db import get_conn
 from app.agent import itinerary_event
 from app.domain import Trip
-from app.places import get_places, list_destinations
+from app.places_client import get_places, list_destinations
 from app.replan import to_draft
 from app.rules import InvalidDraft, build_itinerary
 from app.trips import hub_for, itinerary_places, latest_itinerary, load_itinerary, log_message, save_itinerary

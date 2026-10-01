@@ -8,7 +8,7 @@ from app.agent import itinerary_event
 from app.auth import current_user
 from app.db import get_conn
 from app.domain import Disruption, Trip
-from app.places import get_places, list_destinations, similar_places
+from app.places_client import get_places, list_destinations, similar_places
 from app.replan import InvalidDisruption, NoFeasible, propose
 from app.trips import hub_for, load_itinerary, log_message, save_itinerary
 

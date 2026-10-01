@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     redis_url: str = ""
     plan_rpm: int = 5  # việc lập lịch mỗi phút cho một User (cần REDIS_URL); 0 = không giới hạn
     planner_mode: Literal["single", "multi"] = "single"  # multi = 3 agent chuyên gia + tổng hợp (spec §7)
+    places_url: str = ""  # có → Place, Destination và km Goong đi qua service places (app/places_service.py)
+    catalog_replica_url: str = ""  # có → đọc Place từ bản sao; bản sao chết thì đọc DATABASE_URL
+    shard_urls: str = ""  # URL các shard, cách nhau dấu phẩy; có → Trip của User nằm ở shard user_id % N
     demo_today: dt.date | None = None  # đóng băng "hôm nay" để bản ghi replay của llm-gateway trúng cache
     # llm-gateway (app/gateway.py)
     gateway_cache: Literal["off", "on", "replay"] = "on"

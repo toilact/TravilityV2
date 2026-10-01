@@ -17,7 +17,7 @@ from app.followup import changed_trip, followup
 from app.auth import current_user
 from app.config import settings
 from app.db import connect, get_conn
-from app.places import get_places, list_destinations
+from app.places_client import get_places, list_destinations
 
 logger = logging.getLogger(__name__)
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")

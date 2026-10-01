@@ -6,6 +6,9 @@ os.environ["GOONG_API_KEY"] = ""  # máy dev có key trong .env — test không 
 os.environ["REDIS_URL"] = ""  # test không đụng Redis, trừ khi xin fixture rds
 os.environ["DEMO_TODAY"] = ""
 os.environ["PLANNER_MODE"] = ""  # máy dev có thể đặt multi trong .env — test mặc định chạy agent đơn
+os.environ["PLACES_URL"] = ""  # test mặc định đọc Place trong tiến trình, một database
+os.environ["CATALOG_REPLICA_URL"] = ""
+os.environ["SHARD_URLS"] = ""
 
 from app import distance, kv
 from app.config import settings
