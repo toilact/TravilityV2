@@ -2,12 +2,13 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.types.json import Jsonb
 
-from app import db, forecast, llm, rules
+from app import db, forecast, jobs, llm, rules, worker
 from app.config import settings
 from app.main import app
 from tests.conftest import TEST_URL
 from tests.helpers import add_place, unit_vec
 from tests.test_trips_api import auth, events, happy, use_llm
+from tests.test_worker import published, types
 
 DEAD = "postgresql://travility:travility@127.0.0.1:1/travility"
 SPEC = {"destination": "da-lat", "days": 1, "budget": 2_000_000}
@@ -107,3 +108,28 @@ def test_dead_shard_does_not_block_startup(conn, shards, monkeypatch):
     monkeypatch.setattr(settings, "shard_urls", f"{shards[0]},{DEAD}")
     db.init_schemas()
     assert count(shards[0]) == 0
+
+
+def enqueue(uid):
+    return jobs.enqueue("message", uid, {"message": "Đà Lạt 1 ngày 2 triệu", "trip_id": None})
+
+
+def test_worker_runs_job_on_the_users_shard(conn, shards, rds, monkeypatch):
+    fake_planning(conn, monkeypatch)
+    worker.ensure_group(rds)
+    job = enqueue(3)
+    assert worker.step(None, rds, "w1") is True
+    assert types(rds, job)[-2:] == ["itinerary", "end"]
+    assert count(shards[1]) == 1 and count(shards[0]) == 0 and count(TEST_URL) == 0
+
+
+def test_dead_shard_fails_its_job_and_worker_moves_on(conn, shards, rds, monkeypatch):
+    fake_planning(conn, monkeypatch)
+    worker.ensure_group(rds)
+    monkeypatch.setattr(settings, "shard_urls", f"{shards[0]},{DEAD}")
+    dead, alive = enqueue(3), enqueue(2)
+    worker.step(None, rds, "w1")
+    worker.step(None, rds, "w1")
+    assert published(rds, dead) == [{"type": "error", "message": db.SHARD_DOWN}, "end"]
+    assert types(rds, alive)[-2:] == ["itinerary", "end"]
+    assert rds.xpending_range("jobs", "planners", "-", "+", 10) == []

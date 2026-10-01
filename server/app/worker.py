@@ -10,10 +10,11 @@ import socket
 import threading
 import time
 
+import psycopg
 from redis.exceptions import RedisError, ResponseError
 
 from app import jobs, kv, multi, trips
-from app.db import apply_schema, connect
+from app.db import SHARD_DOWN, connect, init_schemas, shard_conn, shard_urls
 
 logger = logging.getLogger(__name__)
 CLAIM_IDLE_MS = 20_000  # việc im lặng quá bấy nhiêu = worker giữ nó đã chết → worker khác nhận lại
@@ -41,6 +42,8 @@ def ensure_group(c, stream: str = jobs.STREAM, group: str = jobs.GROUP) -> None:
 def run_job(conn, c, me: str, msg_id: str, f: dict, retry: bool = False) -> None:
     """Chạy một việc trong một transaction: worker chết giữa chừng → Postgres rollback, lần chạy lại bắt đầu sạch.
 
+    `conn` là kết nối sẵn của worker ở chế độ một database. Có SHARD_URLS thì mỗi việc tự mở kết nối tới shard
+    của User (conn có thể là None); shard chết → event error, không thử lại (spec scale S29).
     Event cuối chỉ phát sau khi commit, để client không bao giờ thấy Itinerary chưa được lưu.
     """
     job_id = f["job_id"]
@@ -61,12 +64,19 @@ def run_job(conn, c, me: str, msg_id: str, f: dict, retry: bool = False) -> None
     elif time.time() * 1000 - int(msg_id.split("-")[0]) > jobs.QUIET_S * 1000:
         # Xếp hàng lâu hơn thời gian api chờ: client đã nhận lỗi và có thể đã gửi lại → không chạy việc cũ.
         return fail("Hệ thống lập lịch đang bận hoặc chưa chạy, bạn thử lại sau nhé.")
+    own = None
+    if shard_urls():
+        try:
+            own = shard_conn(int(f["user_id"]))
+        except psycopg.OperationalError:
+            return fail(SHARD_DOWN)
+    job_conn = own or conn
     stop = threading.Event()
     threading.Thread(target=_beat, args=(c, msg_id, me, stop), daemon=True).start()
     try:
         held = None
-        with conn.transaction():
-            for ev in trips.guarded(trips.JOBS[f["kind"]](conn, int(f["user_id"]), **json.loads(f["params"]))):
+        with job_conn.transaction():
+            for ev in trips.guarded(trips.JOBS[f["kind"]](job_conn, int(f["user_id"]), **json.loads(f["params"]))):
                 if held is not None:
                     jobs.publish(job_id, held)
                 held = ev
@@ -75,6 +85,8 @@ def run_job(conn, c, me: str, msg_id: str, f: dict, retry: bool = False) -> None
         logger.info("xong việc %s (%s)", job_id, f["kind"])
     finally:
         stop.set()
+        if own is not None:
+            own.close()
 
 
 def step(conn, c, me: str) -> bool:
@@ -120,8 +132,7 @@ def main() -> None:
     c, me = kv.client(), socket.gethostname()
     if c is None:
         raise SystemExit("planner cần REDIS_URL")
-    with connect() as conn:
-        apply_schema(conn)
+    init_schemas()
     logger.info("planner %s sẵn sàng (%s)", me, "agent" if agent else "điều phối")
     conn = None
     while True:
@@ -131,7 +142,8 @@ def main() -> None:
                 agent_step(c, me)
                 continue
             ensure_group(c)  # mỗi vòng: `redis-cli flushdb` trong runbook xoá luôn consumer group
-            conn = conn or connect()
+            if conn is None and not shard_urls():  # có shard thì mỗi việc tự mở kết nối (run_job)
+                conn = connect()
             step(conn, c, me)
         except Exception:
             logger.exception("planner lỗi, thử lại sau 1 giây")
