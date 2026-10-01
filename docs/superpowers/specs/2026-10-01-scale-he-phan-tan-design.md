@@ -52,7 +52,7 @@ S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ 
 
 | Kỹ thuật | Vấn đề trong Travility | Cách giải | Mục |
 |---|---|---|---|
-| Rate limit | Gemini free vài request/phút, một lần lập lịch ~13 lượt gọi; một User bấm liên tục làm cạn quota của mọi người | Giới hạn theo User ở `api`; giới hạn theo provider ở `llm-gateway` (chờ thay vì lỗi) | §5.3, §6 |
+| Rate limit | Gemini free vài request/phút, một lần lập lịch 5–8 lượt gọi (đo ở T4; đa agent 10–18); một User bấm liên tục làm cạn quota của mọi người | Giới hạn theo User ở `api`; giới hạn theo provider ở `llm-gateway` (chờ thay vì lỗi) | §5.3, §6 |
 | Caching | LLM, embedding, Goong đều chậm và tốn tiền; cache Goong đang nằm trong RAM một tiến trình | Redis: phản hồi LLM, embedding, km Goong | §6, §8 |
 | Message queue | Lập lịch 10–30 giây giữ một kết nối HTTP và một tiến trình `api` suốt thời gian đó; tiến trình chết là mất việc | Redis Streams: `api` đẩy việc, `planner` xử lý, việc được giao lại khi worker chết | §5 |
 | Load balancing | Một tiến trình `api` Python chỉ dùng một nhân CPU | `nginx` chia đều cho 2 bản `api` không giữ trạng thái | §4 |

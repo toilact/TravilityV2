@@ -78,6 +78,57 @@ Việc sống 1 giờ. User khác hoặc việc đã hết hạn → 404.
 
 ### Lưu ý
 
-- Bật lại một bản `api` mà `nginx` không chuyển request tới: `dc restart nginx` (nginx chỉ phân giải tên `api` lúc khởi động).
+- Bật lại hoặc build lại `api` mà `nginx` trả 502 hay không chuyển request tới: `dc restart nginx` (nginx chỉ phân giải tên `api` lúc khởi động).
 - Mỗi stream SSE đang mở giữ một thread của bản `api` (pool 40 thread mỗi bản): khoảng 80 lượt lập lịch đồng thời là trần của cụm 2 `api`.
 - `redis-cli flushdb` xoá cả queue và việc đang chạy; `planner` tự tạo lại consumer group.
+
+## Lập lịch đa agent (T4)
+
+`PLANNER_MODE=multi`: ba agent chuyên gia (`an-uong`, `tham-quan`, `cho-o`) tìm Place song song, agent tổng hợp xếp lịch. Chỉ áp cho lập lịch mới và "Lập lại". Mặc định là `single`.
+
+```bash
+PLANNER_MODE=multi dc up -d          # cụm: 3 bản planner-agent đọc stream agent_jobs
+dc logs -f planner-agent             # mỗi role một dòng "agent <role> xong việc …"
+dc exec redis redis-cli xlen agent_jobs
+```
+
+Chế độ một tiến trình: đặt `PLANNER_MODE=multi` trong `server/.env`. Không cần Redis; ba agent chạy bằng 3 thread.
+
+Trong Chat, mỗi dòng tìm kiếm có nhãn agent: "Ăn uống · Đang tìm: …", "Tham quan · …", "Chỗ ở · …". Trip 1 ngày không có agent chỗ ở.
+
+### Tắt agent giữa lúc lập lịch
+
+1. `dc stop planner-agent`, rồi gửi một yêu cầu lập lịch chưa từng gửi.
+2. Sau tối đa 45 giây Chat hiện "Chuyển sang lập lịch thường…", rồi ra lịch bằng agent đơn.
+3. `dc start planner-agent`.
+
+Một agent báo lỗi thì chuyển ngay, không chờ 45 giây. Việc trong `agent_jobs` giao nhiều nhất một lần; việc xếp hàng quá 45 giây bị agent bỏ qua.
+
+### Hạn mức provider
+
+Gemini free cho 15 lượt chat mỗi phút cho mỗi model. Một lần lập lịch `multi` dùng trung bình 15 lượt (10–18), `single` trung bình 6 lượt (5–8), nên một lần `multi` đã xấp xỉ trần và hai lần trong cùng một phút chắc chắn vượt: agent nhận 429, điều phối quay về agent đơn, agent đơn cũng 429 và Chat báo "Không kết nối được AI". Cách xử lý:
+
+- Demo và load test: ghi kịch bản một lần rồi chạy `GATEWAY_CACHE=replay` (mục "Ghi kịch bản demo"). Brief của agent tổng hợp gộp danh sách theo thứ tự role cố định nên phát lại trúng cache.
+- Chạy thật: đặt `LLM_RPM=14` để gateway chờ thay vì lỗi; chờ lâu hơn 45 giây thì vẫn rơi về agent đơn.
+
+Đã kiểm ngày 2026-10-01: ba User gửi ba yêu cầu đã ghi cùng lúc → cả ba ra lịch qua đa agent, không lượt nào trượt cache.
+
+### So `single` với `multi`
+
+```bash
+docker compose up -d db redis
+cd server && uv run python -m scripts.golden --mode both --rpm 14
+```
+
+8 prompt, gọi thẳng provider trong `.env`, đa agent chạy bằng thread. `--rpm 14` hãm theo hạn mức Gemini free; thời gian báo đã trừ phần chờ hạn mức.
+
+Kết quả đo ngày 2026-10-01, model `gemini-3.5-flash-lite`, 37 Place Đà Lạt:
+
+| Chế độ | Prompt | Itinerary hợp lệ | Conflict TB | Giây TB | Giây trung vị | Lượt LLM TB | Về dự phòng |
+|---|---|---|---|---|---|---|---|
+| single | 8 | 100% | 0,6 | 28,4 | 15,0 | 6,4 | 0 |
+| multi | 8 | 100% | 1,1 | 21,9 | 19,5 | 15,1 | 1 |
+
+- Trung bình của `single` bị một prompt kéo lên (127 giây, provider trả chậm một lượt); bảy prompt còn lại từ 9 đến 17 giây. So bằng trung vị thì `multi` chậm hơn khoảng 4,5 giây.
+- `multi` tốn gấp 2,4 lần số lượt LLM và có nhiều Conflict hơn. Năm trong tám prompt `multi` bị hãm giữa chừng vì vượt 14 lượt mỗi phút; lần về dự phòng duy nhất là do chờ hạn mức quá 45 giây. Thời gian của các prompt bị hãm chỉ là xấp xỉ.
+- Kết luận: trên dữ liệu và hạn mức hiện tại `multi` không hơn `single` ở chỉ số nào. Giữ `single` làm mặc định, kể cả cho demo; `multi` dùng để trình diễn agent chạy song song trên nhiều worker (chạy ở `replay`).
