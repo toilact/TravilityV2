@@ -18,7 +18,8 @@ Single-context: `CONTEXT.md` + `docs/adr/` ở gốc repo. See `docs/agents/doma
 
 ## Commands
 
-- Server test: `docker compose up -d db && cd server && uv run pytest`
+- Server test: `docker compose up -d db redis && cd server && uv run pytest`
+- Cụm (Redis + llm-gateway): `docker compose -f docker-compose.cluster.yml up -d --build` — xem `docs/runbook-cum.md`
 - Client test/build: `cd client && npm test && npm run build`
 - Import Place: `cd server && uv run python -m scripts.import_places ../data/places`
 - Desktop: `cd desktop && uv run python main.py [url]`

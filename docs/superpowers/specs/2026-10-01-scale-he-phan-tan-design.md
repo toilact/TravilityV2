@@ -34,6 +34,9 @@ Không làm: triển khai cloud, tự động chuyển node chính (failover), t
 | S12 | Mỗi thành phần phân tán bật bằng một biến môi trường; thiếu biến thì chạy như cũ | Chế độ đơn giản là đường lui cho demo, cho test và cho máy các bạn khác |
 | S13 | Không chuyển dữ liệu cũ sang cụm; cụm khởi động với volume mới + import Place + script tạo User mẫu | Chỉ là dữ liệu dev (như quyết định ở spec UI mới) |
 | S14 | AI tự train: chỉ mô hình mưa. Bỏ động đất, độ đông, cá nhân hoá / recommender | Động đất không dự đoán được về khoa học; độ đông không có dữ liệu kiểm chứng; quỹ thời gian chỉ đủ một mô hình |
+| S15 | `DEMO_TODAY` đóng băng "hôm nay" ở `parse_trip` và `forecast` | Prompt đọc yêu cầu có ngày hôm nay; không đóng băng thì bản ghi `replay` trượt cache khi sang ngày khác |
+| S16 | `GATEWAY_CHAT_TTL`, `0` = không hết hạn | Bản ghi cho demo và load test phải sống qua nhiều ngày |
+| S17 | Dự báo Open-Meteo cache trong Redis (6 giờ; có `DEMO_TODAY` thì không hết hạn và ghi cả kết quả lỗi) | Khả năng mưa nằm trong brief gửi LLM; mất mạng mà brief đổi thì trượt cache |
 
 S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ script chuyển, thay bằng script tạo dữ liệu mẫu.
 
@@ -87,6 +90,7 @@ Tổng 15 container (1 nginx, 2 api, 5 planner, 1 gateway, 1 places, 1 redis, 4 
 | `SHARD_URLS` | Mọi bảng ở `DATABASE_URL` | Danh sách URL shard, cách nhau dấu phẩy |
 | `CATALOG_REPLICA_URL` | Đọc Place từ `DATABASE_URL` | Đọc Place từ bản sao |
 | `PLANNER_MODE` | `single` | `multi` |
+| `DEMO_TODAY` | Dùng ngày thật theo giờ VN | Mọi chỗ cần "hôm nay" dùng ngày này |
 
 **Giữ nguyên:** `rules.build_itinerary`, `rules.find_conflicts`, engine thay thế (`replan.py`) không đổi logic. Tiền và Conflict vẫn do code tính ở đúng một nơi (ADR-0001, ADR-0006).
 
@@ -134,18 +138,20 @@ Nói giao thức OpenAI ở `POST /v1/chat/completions` và `POST /v1/embeddings
 | Chế độ | Hành vi |
 |---|---|
 | `off` | Luôn gọi provider |
-| `on` (mặc định trong cụm) | Trúng thì trả ngay; trượt thì gọi provider rồi ghi. Chat hết hạn sau 24 giờ; embedding không hết hạn |
+| `on` (mặc định trong cụm) | Trúng thì trả ngay; trượt thì gọi provider rồi ghi. Chat hết hạn sau `GATEWAY_CHAT_TTL` giây (mặc định 24 giờ, `0` = không hết hạn); embedding không hết hạn |
 | `replay` | Chỉ đọc cache; trượt → 503 "chưa ghi phản hồi cho request này". Dùng cho demo mất mạng (#14) và cho load test |
 
-Redis bật `appendonly` và có volume, nên cache sống qua lần khởi động lại. Quy trình demo: chạy kịch bản một lần ở chế độ `on` khi có mạng, rồi chuyển `replay`.
+Redis bật `appendonly` và có volume, nên cache sống qua lần khởi động lại. Quy trình demo: đặt `DEMO_TODAY` và `GATEWAY_CHAT_TTL=0`, chạy kịch bản một lần ở chế độ `on` khi có mạng, rồi chuyển `replay` ([runbook](../../runbook-cum.md)).
 
 Hệ quả cần biết: cùng một tin nhắn trên cùng một Trip sẽ ra đúng lịch cũ trong 24 giờ. Chấp nhận cho demo; "Lập lại" vẫn ra lịch khác vì brief có kèm lịch cũ.
 
-**Giới hạn theo provider.** Bộ đếm theo phút trong Redis cho từng provider (`LLM_RPM`). Hết lượt: chờ tới phút sau, tối đa 30 giây, rồi mới trả 429. Mục đích: nhiều agent chạy song song không làm vỡ quota.
+**Giới hạn theo provider.** Bộ đếm theo phút trong Redis cho từng provider (`LLM_RPM`). Hết lượt: chờ tới phút sau, tối đa 30 giây, rồi mới trả 429. Mục đích: nhiều agent chạy song song không làm vỡ quota. Chỉ áp cho chat của provider chính; trúng cache không tính lượt.
 
 **Chuyển provider.** Khai báo provider phụ (`LLM2_BASE_URL`, `LLM2_API_KEY`, `LLM2_MODEL`). Provider chính trả 429/5xx/timeout → gọi provider phụ với model tương ứng. Sau 3 lỗi liên tiếp, bỏ qua provider chính 30 giây. **Chỉ áp cho chat.** Embedding không chuyển provider: hai provider cho hai không gian vector khác nhau, đổi là phải import lại Place (ADR-0003).
 
 **Số đếm.** Trúng / trượt cache, lượt gọi provider, lượt phải chờ, lượt chuyển provider — lưu trong Redis, trang "Hệ thống" đọc.
+
+Gateway viết đồng bộ như phần còn lại của server; lượt chờ chiếm một thread trong pool của FastAPI.
 
 ## 7. Lập lịch đa agent
 

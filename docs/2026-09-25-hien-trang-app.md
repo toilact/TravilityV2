@@ -57,7 +57,7 @@ Client streamTrip(message, tripId) — POST /trips {message, trip_id?} (Bearer J
           → rules.build_itinerary:
                • kiểm tra Place đã được search, đủ số ngày, có Stay nếu > 1 ngày
                • route mỗi ngày: [Hub ngày 1 | Stay] → Stop… → [Hub ngày cuối | Stay]
-               • Leg: km + phút từ Goong Distance Matrix (app/distance.py, 1 request/ngày, cache trong tiến trình);
+               • Leg: km + phút từ Goong Distance Matrix (app/distance.py, 1 request/ngày, cache trong tiến trình + Redis khi có REDIS_URL);
                  không có GOONG_API_KEY hoặc Goong lỗi → chim bay × 1.3 (lỗi thì nghỉ gọi 60s);
                  < 0.8 km đi bộ; xe máy thuê / riêng, ô tô riêng, Grab
                • find_conflicts: vượt Budget, đóng cửa, thiếu tag, mưa + ngoài trời,
@@ -105,6 +105,15 @@ POST /trips/{id}/proposals/{pid}/apply {option}
   → save_itinerary (version = max + 1), lưu chosen_index → "itinerary" {…, version}
 ```
 
+`llm-gateway` (`server/app/gateway.py`, chỉ chạy trong cụm `docker-compose.cluster.yml`, #48):
+```
+api ──LLM_BASE_URL / EMBED_BASE_URL──► llm-gateway /v1/chat/completions, /v1/embeddings ──► Gemini / OpenAI
+  cache Redis theo hash(request): GATEWAY_CACHE = off | on | replay (replay trượt → 503, dùng cho demo mất mạng)
+  chat: giới hạn LLM_RPM (hết lượt thì chờ ≤ 30s), provider chính 429/5xx/timeout → provider phụ LLM2_*
+  DEMO_TODAY đóng băng "hôm nay" ở parse_trip + forecast để bản ghi trúng cache ở ngày khác
+```
+Cách dựng cụm, ghi → phát lại kịch bản demo, xoá cache: [runbook-cum.md](runbook-cum.md). Chế độ `docker compose up` (một tiến trình, không gateway) vẫn là mặc định khi dev.
+
 ### 2.3 Nguyên tắc cần giữ khi mở rộng
 - **LLM chỉ chọn Place và xếp giờ; tiền và Conflict do code tính** (`server/app/rules.py`).
 - **AI chỉ được dùng Place đã có trong kết quả search** (biến `seen` trong `agent.plan`, ADR-0001).
@@ -122,7 +131,7 @@ POST /trips/{id}/proposals/{pid}/apply {option}
 | Vượt Budget chỉ báo một dòng, không có bảng chi phí | Gửi breakdown cho AI + hiện trên Timeline |
 | Leg Hub → thành phố tính theo Travel Mode | Tính theo Arrival Mode |
 | Server tính Leg theo xe của Travel Mode (bike/car), map luôn vẽ `vehicle=bike` | Grab / ô tô riêng có thể lệch nhẹ với tuyến vẽ → truyền Travel Mode cho `MapView` |
-| Mỗi lần search gọi embedding một lần; Gemini free giới hạn request/phút | demo_cache (#14); demo nên dùng OpenAI |
+| Mỗi lần search gọi embedding một lần; Gemini free giới hạn request/phút | `llm-gateway` cache + giới hạn theo provider (#48): chạy cụm `docker-compose.cluster.yml` |
 | Chưa có Traveler Profile, chỗ ở đã đặt, điểm bắt buộc ghé | Lát 2–3 của spec cá nhân hoá (#18) |
 | Dữ liệu 37 Place, 27 chưa kiểm chứng | #19 |
 
