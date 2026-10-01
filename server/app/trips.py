@@ -17,7 +17,7 @@ from app.followup import changed_trip, followup
 from app.auth import current_user
 from app.config import settings
 from app.db import connect, get_conn
-from app.places_client import get_places, list_destinations
+from app.places_client import PLACES_DOWN, PlacesDown, get_places, list_destinations
 
 logger = logging.getLogger(__name__)
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -52,6 +52,9 @@ def guarded(events):
     except openai.OpenAIError:
         logger.exception("Lỗi gọi AI khi lập lịch trình")
         yield sse({"type": "error", "message": "Không kết nối được AI, kiểm tra mạng rồi thử lại nhé."})
+    except PlacesDown:
+        logger.exception("Service places không trả lời")
+        yield sse({"type": "error", "message": PLACES_DOWN})
     except Exception:
         logger.exception("Lỗi không lường trước khi lập lịch trình")
         yield sse({"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."})

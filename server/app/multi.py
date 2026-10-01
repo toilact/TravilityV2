@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from collections.abc import Iterator
+from contextlib import nullcontext
 
 from redis.exceptions import RedisError
 
@@ -19,9 +20,13 @@ from app.places_client import get_places
 
 logger = logging.getLogger(__name__)
 _now = time.monotonic
-agent_conn = connect  # mỗi chuyên gia một kết nối riêng; test thay bằng kết nối test
 AGENT_WAIT_S = 45  # chờ đủ danh sách tối đa bấy nhiêu giây rồi quay về agent đơn
 FALLBACK_TEXT = "Chuyển sang lập lịch thường…"
+
+
+def agent_conn():
+    """Mỗi chuyên gia một kết nối riêng để đọc Place; có PLACES_URL thì không cần database. Test thay bằng kết nối test."""
+    return nullcontext(None) if settings.places_url else connect()
 AGENT_STREAM, AGENT_GROUP = "agent_jobs", "agents"
 KEY_TTL_S = 300  # khoá agent:{uuid} của một lần chạy sống bấy nhiêu giây
 

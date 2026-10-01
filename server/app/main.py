@@ -2,10 +2,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import auth, proposals, trips, versions
 from app.config import settings
 from app.db import apply_schema, connect
+from app.places_client import PLACES_DOWN, PlacesDown, list_destinations
 
 _DEFAULT_JWT_SECRETS = {"dev-secret-change-me", "doi-chuoi-nay-thanh-chuoi-ngau-nhien-dai"}
 
@@ -16,6 +18,11 @@ async def lifespan(_: FastAPI):
         raise RuntimeError("JWT_SECRET chưa được đặt — sửa server/.env")
     with connect() as conn:
         apply_schema(conn)
+    if settings.places_url:  # nạp sẵn Destination: places chết sau đó thì danh sách và mở Trip vẫn chạy (spec S27)
+        try:
+            list_destinations(None)
+        except PlacesDown:
+            pass
     yield
 
 
@@ -27,6 +34,11 @@ app.include_router(auth.router)
 app.include_router(trips.router)
 app.include_router(proposals.router)
 app.include_router(versions.router)
+
+
+@app.exception_handler(PlacesDown)
+def places_down(_request, _exc):
+    return JSONResponse({"detail": PLACES_DOWN}, status_code=503)
 
 
 @app.get("/health")
