@@ -126,7 +126,7 @@ Spec: [scale-he-phan-tan](superpowers/specs/2026-10-01-scale-he-phan-tan-design.
 - [x] **T2** — #48 — Redis + `llm-gateway`: cache LLM/embedding, chế độ `replay` cho demo mất mạng (gộp demo_cache #14), giới hạn theo provider, chuyển Gemini ↔ OpenAI; cache Goong + dự báo mưa sang Redis; `DEMO_TODAY` đóng băng ngày cho bản ghi ([runbook](runbook-cum.md)) · *caching, rate limit*
 - [x] **T3** — #49 — Queue Redis Streams + worker `planner` (mỗi việc một transaction, nhịp tim, nhận lại việc sau 20 giây), SSE qua Redis, `nginx` + 2 bản `api`, rate limit theo User `PLAN_RPM`, `GET /jobs/{id}/events` ([runbook](runbook-cum.md)). Cụm 8 container dùng khoảng 570 MB RAM · *message queue, load balancing*
 - [x] **T4** — #50 — Lập lịch đa agent sau cờ `PLANNER_MODE`: 3 chuyên gia song song (thread, hoặc `planner-agent` × 3 qua stream `agent_jobs`) + agent tổng hợp; agent lỗi hoặc quá 45 giây thì về agent đơn; nhãn agent trong Chat. Golden set 8 prompt: cả hai chế độ 100% hợp lệ, `multi` tốn 15 lượt LLM so với 6, chậm hơn khoảng 4,5 giây (trung vị) và nhiều Conflict hơn → giữ `single` làm mặc định ([runbook](runbook-cum.md)). Cụm 11 container dùng khoảng 850 MB RAM · *AI, distributed*
-- [ ] **T5** — #51 — Service `places`, bản sao đọc, 2 shard theo `user_id` · *microservice, replication, sharding* · *sharding cắt thứ 1, tách `places` cắt thứ 2*
+- [x] **T5** — #51 — Service `places` (tìm vector, Place tương tự, km Goong) đọc bản sao `pg-catalog-replica`, bản sao chết thì đọc node chính; Trip chia 2 shard theo `user_id % 2`, shard chết chỉ User của shard đó nhận 503; `places` chết thì Trip cũ vẫn mở được; `seed_users` ([runbook](runbook-cum.md)). Cụm 15 container dùng khoảng 1.065 MB RAM · *microservice, replication, sharding*
 - [ ] **T6** — #52 — Trang "Hệ thống", load test, chế độ chỉ đọc khi node chính chết, runbook tắt node; **đóng băng kiến trúc** · *CAP, bằng chứng*
 - [ ] **T7** — #53 — Mô hình dự đoán mưa cho Trip xa hơn 16 ngày, kèm giải thích · *AI tự train*
 
@@ -152,6 +152,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14), T3 (#49) và T4 (#50) xong 2026-10-01. Tiếp: lát scale T5 (#51, `places` + bản sao + shard) — lên plan khi bắt đầu tuần; #37 và #26 dời sang T8.
+1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14), T3 (#49) và T4 (#50) xong 2026-10-01. ✅ T5 (#51) xong 2026-10-01. Tiếp: lát scale T6 (#52, trang Hệ thống + load test + chế độ chỉ đọc) — lên plan khi bắt đầu tuần; #37 và #26 dời sang T8.
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
 3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.

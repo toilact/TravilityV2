@@ -8,9 +8,10 @@ Cụm phân tán chạy bằng `docker-compose.cluster.yml` ([spec](superpowers/
 docker compose down                                        # tắt chế độ một tiến trình nếu đang chạy
 docker compose -f docker-compose.cluster.yml up -d --build
 cd server && uv run python -m scripts.import_places ../data/places   # lần đầu: volume mới chưa có Place
+docker compose -f ../docker-compose.cluster.yml exec api uv run --no-dev python -m scripts.seed_users   # User mẫu
 ```
 
-`nginx` (trước 2 bản `api`) ở `localhost:8000`, `llm-gateway` ở `localhost:8001` (chỉ để kiểm tra). Mọi lệnh dưới đây viết tắt `dc` = `docker compose -f docker-compose.cluster.yml`.
+`nginx` (trước 2 bản `api`) ở `localhost:8000`, `llm-gateway` ở `localhost:8001`, `places` ở `localhost:8002` (hai cổng sau chỉ để kiểm tra), `pg-catalog` ở `localhost:5432`. Mọi lệnh dưới đây viết tắt `dc` = `docker compose -f docker-compose.cluster.yml`.
 
 ## Số đếm của gateway
 
@@ -81,6 +82,38 @@ Việc sống 1 giờ. User khác hoặc việc đã hết hạn → 404.
 - Bật lại hoặc build lại `api` mà `nginx` trả 502 hay không chuyển request tới: `dc restart nginx` (nginx chỉ phân giải tên `api` lúc khởi động).
 - Mỗi stream SSE đang mở giữ một thread của bản `api` (pool 40 thread mỗi bản): khoảng 80 lượt lập lịch đồng thời là trần của cụm 2 `api`.
 - `redis-cli flushdb` xoá cả queue và việc đang chạy; `planner` tự tạo lại consumer group.
+
+## `places`, bản sao đọc, shard (T5)
+
+Bốn Postgres: `pg-catalog` (users, destinations, places) có bản sao `pg-catalog-replica`; `pg-shard-0` và `pg-shard-1` giữ trips, itineraries, proposals, messages. Trip của User nằm ở shard `user_id % 2`. Đọc Place đi qua service `places`, service này đọc bản sao.
+
+```bash
+dc exec api uv run --no-dev python -m scripts.seed_users          # demo1/demo2@travility.vn, mật khẩu travility-demo; in shard của từng User
+dc exec pg-shard-0 psql -U travility -c 'SELECT id, user_id FROM trips'
+dc exec pg-catalog-replica psql -U travility -c "SELECT pg_is_in_recovery(), now() - pg_last_xact_replay_timestamp() AS tre"
+dc logs places | grep -c "POST /search"                           # số lượt tìm Place đã đi qua service
+```
+
+### Tắt bản sao
+
+`dc stop pg-catalog-replica` → không ai thấy gì: `places` đọc node chính, đo được vẫn khoảng 10 ms mỗi lượt đọc (`dc logs places` có dòng "bản sao pg-catalog không kết nối được, đọc node chính"). `dc start pg-catalog-replica` là bản sao tự đuổi kịp.
+
+### Tắt một shard
+
+`dc stop pg-shard-1` → User có `user_id` lẻ nhận 503 "Dữ liệu chuyến đi tạm không truy cập được" ở mọi request về Trip; User chẵn dùng bình thường; đăng nhập của cả hai vẫn chạy. Việc lập lịch đang xếp hàng của User shard chết nhận event `error`, worker chạy tiếp việc khác. Shard không có bản sao: bật lại bằng `dc start pg-shard-1`.
+
+### Tắt `places`
+
+`dc stop places` → lập lịch, Disruption → Proposal, khôi phục version báo "Dịch vụ địa điểm tạm không truy cập được". Danh sách Trip, mở Trip, ghim vẫn chạy (mỗi bản `api` giữ bản Destination đọc được gần nhất, nạp sẵn lúc khởi động). Km của Leg quay về ước tính chim bay × 1.3.
+
+### Lưu ý
+
+- Volume mới hoàn toàn: sau `dc down -v` phải chạy lại `import_places` và `seed_users`. Volume `travility-cluster_pgdata` của T2–T4 không còn được dùng; xoá bằng `docker volume rm travility-cluster_pgdata` nếu không cần dữ liệu cũ.
+- `import_places` chạy từ máy ngoài, ghi vào `pg-catalog` qua `localhost:5432`; bản sao nhận theo sau vài mili giây.
+- `trips.id` tự tăng theo từng shard nên hai User khác shard có thể cùng có Trip số 1. Không lẫn: shard chọn theo User trong JWT trước rồi mới tra id.
+- Node treo mà không tắt hẳn (`docker pause`, đứt mạng) thì mỗi lần kết nối chờ tối đa 2 giây rồi mới chuyển sang node khác hoặc báo 503.
+- Thêm shard thứ ba đòi chuyển dữ liệu (`user_id % N` đổi kết quả với hầu hết User): không làm; hướng giải là consistent hashing.
+- Chưa có ở T5 (để T6): `pg-catalog` chính chết thì `api` không khởi động lại được và không đăng nhập được.
 
 ## Lập lịch đa agent (T4)
 
