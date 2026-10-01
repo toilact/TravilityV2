@@ -96,3 +96,93 @@ def test_done_job_is_not_run_again(conn, rds, monkeypatch):
     rds.set(f"job:{job_id}:done", 1)
     worker.step(conn, rds, "w1")
     assert count(conn, "trips") == 0 and pending(rds) == [] and types(rds, job_id) == ["end"]
+
+
+class Crash(BaseException):
+    """Worker bị giết giữa chừng: guarded chỉ bắt Exception nên lỗi này xuyên qua như tiến trình chết."""
+
+
+def crash_midway(conn, rds, monkeypatch):
+    """w1 nhận việc, ghi Trip rồi chết trước khi có Itinerary. Trả (job_id, hàm plan thật, id Place)."""
+    real, pid = trips.plan, add_place(conn, kind="cafe")
+
+    def dying_plan(*a, **k):
+        raise Crash()
+        yield
+
+    use_llm(monkeypatch, [RECORD])
+    monkeypatch.setattr(trips, "plan", dying_plan)
+    job_id = submit(conn)
+    with pytest.raises(Crash):
+        worker.step(conn, rds, "w1")
+    return job_id, real, pid
+
+
+def make_idle(rds, ms=30_000):
+    """Giả lập việc đã im lặng ms mili giây (không tăng số lần giao)."""
+    [p] = pending(rds)
+    rds.xclaim("jobs", "planners", p["consumer"], 0, [p["message_id"]], idle=ms, justid=True)
+
+
+def test_abandoned_job_is_rerun_without_duplicates(conn, rds, monkeypatch):
+    job_id, real_plan, pid = crash_midway(conn, rds, monkeypatch)
+    assert count(conn, "trips") == 0  # transaction của lần chạy dở đã rollback
+    make_idle(rds)
+    monkeypatch.setattr(trips, "plan", real_plan)
+    use_llm(monkeypatch, happy(pid))
+    assert worker.step(conn, rds, "w2") is True
+    evs = published(rds, job_id)
+    assert types(rds, job_id) == ["thinking", "thinking", "thinking", "trip", "tool_call", "itinerary", "end"]
+    assert evs[1]["text"] == "Đang thử lại…"
+    assert count(conn, "trips") == 1 and count(conn, "messages WHERE role = 'user'") == 1
+    assert pending(rds) == []
+
+
+def test_fresh_pending_job_is_not_stolen(conn, rds, monkeypatch):
+    crash_midway(conn, rds, monkeypatch)  # vừa giao cho w1, chưa im lặng đủ 20 giây
+    assert worker.step(conn, rds, "w2") is False
+    assert pending(rds)[0]["consumer"] == "w1"
+
+
+def test_third_delivery_gives_error_instead_of_running(conn, rds, monkeypatch):
+    job_id, *_ = crash_midway(conn, rds, monkeypatch)
+    make_idle(rds)
+    with pytest.raises(Crash):
+        worker.step(conn, rds, "w2")  # lần chạy lại cũng chết
+    make_idle(rds)
+    worker.step(conn, rds, "w3")
+    assert published(rds, job_id)[-2:] == [
+        {"type": "error", "message": "Có lỗi khi lập lịch trình, bạn thử lại nhé."}, "end"]
+    assert pending(rds) == [] and count(conn, "trips") == 0
+
+
+def test_heartbeat_keeps_job_fresh_without_counting_as_delivery(conn, rds, monkeypatch):
+    crash_midway(conn, rds, monkeypatch)
+    make_idle(rds)
+    monkeypatch.setattr(worker, "BEAT_S", 0.01)
+    stop = threading.Event()
+    t = threading.Thread(target=worker._beat, args=(rds, pending(rds)[0]["message_id"], "w1", stop))
+    t.start()
+    time.sleep(0.1)
+    stop.set()
+    t.join()
+    [p] = pending(rds)
+    assert p["time_since_delivered"] < 5000 and p["times_delivered"] == 1
+
+
+def test_job_runs_under_heartbeat_and_stops_it(conn, rds, monkeypatch):
+    beats = []
+    monkeypatch.setattr(worker, "_beat", lambda c, msg_id, me, stop: beats.append((me, stop)))
+    use_llm(monkeypatch, happy(add_place(conn, kind="cafe")))
+    submit(conn)
+    worker.step(conn, rds, "w1")
+    time.sleep(0.05)
+    assert len(beats) == 1 and beats[0][0] == "w1" and beats[0][1].is_set()
+
+
+def test_heartbeat_stops_when_job_crashes(conn, rds, monkeypatch):
+    beats = []
+    monkeypatch.setattr(worker, "_beat", lambda c, msg_id, me, stop: beats.append(stop))
+    crash_midway(conn, rds, monkeypatch)
+    time.sleep(0.05)
+    assert beats[0].is_set()
