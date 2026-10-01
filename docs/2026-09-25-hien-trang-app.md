@@ -122,6 +122,16 @@ client ─► nginx ─► api ×2 ──XADD jobs──► planner ×2 (python 
 ```
 Thiếu `REDIS_URL`: việc chạy ngay trong request như trước.
 
+Lập lịch đa agent (`server/app/multi.py`, chỉ khi `PLANNER_MODE=multi`, #50):
+```
+planner (điều phối) ──XADD agent_jobs × 3 {key, role, trip}──► planner-agent ×3 (python -m app.worker --stream agent_jobs)
+        ▲                                                         │ multi.shortlist: ≤ 4 lượt search_places, code ép kind theo role
+        └──BLPOP agent:{uuid}: event tool_call (agent=role) + {role, place_ids, note}──┘
+  đủ danh sách → agent.plan(seeded=…, max_searches=2); agent lỗi / Redis lỗi / quá 45 s → agent.plan đơn
+  thiếu REDIS_URL → ba chuyên gia chạy bằng 3 thread trong tiến trình
+```
+`server/scripts/golden.py` đo `single` và `multi` trên 8 prompt (bảng ở runbook).
+
 Cách dựng cụm, ghi → phát lại kịch bản demo, tắt `planner`, xoá cache: [runbook-cum.md](runbook-cum.md). Chế độ `docker compose up` (một tiến trình, không gateway) vẫn là mặc định khi dev.
 
 ### 2.3 Nguyên tắc cần giữ khi mở rộng

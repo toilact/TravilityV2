@@ -41,6 +41,10 @@ Không làm: triển khai cloud, tự động chuyển node chính (failover), t
 | S19 | Worker báo nhịp tim 5 giây; việc im lặng quá 20 giây mới bị nhận lại | Lập lịch có thể dài hơn 60 giây; không nhịp tim thì worker đang sống bị giành việc |
 | S20 | T3 chỉ làm phía server cho việc nối lại bằng `job_id`; client tự nối lại ở T6 | Giữ "client không sửa" trong T3 |
 | S21 | `api` chờ event tối đa 120 giây im lặng rồi phát `error` | Có `REDIS_URL` mà không có `planner` thì không treo |
+| S22 | `PLANNER_MODE=multi` không cần Redis: thiếu `REDIS_URL` thì ba agent chạy bằng 3 thread trong tiến trình | Hai công tắc độc lập (S12); test và golden set chạy không cần cụm |
+| S23 | Agent gửi event và kết quả về điều phối qua một khoá riêng cho mỗi lần chạy (`agent:{uuid}`); điều phối phát lại event | Generator lập lịch không biết `job_id`; lần chạy lại sau khi worker chết không lẫn kết quả cũ |
+| S24 | `agent_jobs` giao nhiều nhất một lần; agent bỏ việc xếp hàng quá 45 giây | Điều phối đã có đường lui là agent đơn; nhận lại việc agent chỉ tốn quota LLM |
+| S25 | Golden set T4: 8 prompt, 1 provider, chạy trong tiến trình; Chat hiện nhãn agent ở dòng tìm kiếm | Đủ để kết luận `multi` có kém `single` không; nhãn là bằng chứng nhìn thấy được khi demo |
 
 S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ script chuyển, thay bằng script tạo dữ liệu mẫu.
 
@@ -48,7 +52,7 @@ S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ 
 
 | Kỹ thuật | Vấn đề trong Travility | Cách giải | Mục |
 |---|---|---|---|
-| Rate limit | Gemini free vài request/phút, một lần lập lịch ~13 lượt gọi; một User bấm liên tục làm cạn quota của mọi người | Giới hạn theo User ở `api`; giới hạn theo provider ở `llm-gateway` (chờ thay vì lỗi) | §5.3, §6 |
+| Rate limit | Gemini free vài request/phút, một lần lập lịch 5–8 lượt gọi (đo ở T4; đa agent 10–18); một User bấm liên tục làm cạn quota của mọi người | Giới hạn theo User ở `api`; giới hạn theo provider ở `llm-gateway` (chờ thay vì lỗi) | §5.3, §6 |
 | Caching | LLM, embedding, Goong đều chậm và tốn tiền; cache Goong đang nằm trong RAM một tiến trình | Redis: phản hồi LLM, embedding, km Goong | §6, §8 |
 | Message queue | Lập lịch 10–30 giây giữ một kết nối HTTP và một tiến trình `api` suốt thời gian đó; tiến trình chết là mất việc | Redis Streams: `api` đẩy việc, `planner` xử lý, việc được giao lại khi worker chết | §5 |
 | Load balancing | Một tiến trình `api` Python chỉ dùng một nhân CPU | `nginx` chia đều cho 2 bản `api` không giữ trạng thái | §4 |
@@ -64,7 +68,7 @@ S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ 
 client ─► nginx ─► api ×2 ──► redis (Streams · cache · bộ đếm)
                     │              ▲ events          │ jobs / agent_jobs
                     │              │                 ▼
-                    │        planner ×2 (điều phối) · planner ×3 (agent)
+                    │        planner ×2 (điều phối) · planner-agent ×3
                     │              │         │
                     │              │         └──► llm-gateway ──► Gemini / OpenAI
                     ├──────────────┴──► places ──► pg-catalog-replica
@@ -76,11 +80,12 @@ client ─► nginx ─► api ×2 ──► redis (Streams · cache · bộ đ�
 |---|---|---|---|
 | `nginx` | image `nginx` | Chia đều cho các bản `api`; `limit_req` theo IP cho `/auth/*`; tắt buffer cho SSE | `api` |
 | `api` | `uvicorn app.main:app` | Auth, Trip, version, ghim, Disruption → Proposal (code, không LLM); đẩy việc vào queue; chuyển event về client; định tuyến shard; `GET /system/status` | redis, pg-catalog, shard, `places` |
-| `planner` | `python -m app.worker --stream jobs` / `--stream agent_jobs` | Chạy `parse_trip`, lập lịch, followup, agent chuyên gia | redis, shard, `places`, `llm-gateway` |
+| `planner` | `python -m app.worker` | Điều phối: chạy `parse_trip`, lập lịch, followup | redis, shard, `places`, `llm-gateway` |
+| `planner-agent` | `python -m app.worker --stream agent_jobs` | Chạy agent chuyên gia khi `PLANNER_MODE=multi` | redis, `places`, `llm-gateway` |
 | `llm-gateway` | `uvicorn app.gateway:app` | Proxy giao thức OpenAI: cache, giới hạn theo provider, chuyển provider | redis, provider |
 | `places` | `uvicorn app.places_service:app` | Tìm Place bằng vector, Place tương tự, lấy Place theo id, km Goong | pg-catalog-replica, redis, `llm-gateway`, Goong |
 
-Tổng 15 container (1 nginx, 2 api, 5 planner, 1 gateway, 1 places, 1 redis, 4 Postgres). Đo RAM cuối T3; nếu chật thì giảm số bản `planner`.
+Tổng 15 container (1 nginx, 2 api, 2 planner, 3 planner-agent, 1 gateway, 1 places, 1 redis, 4 Postgres). Đo RAM cuối T3; nếu chật thì giảm số bản `planner`.
 
 **Hai file compose.** `docker-compose.yml` giữ nguyên (db + api, chế độ đơn giản). `docker-compose.cluster.yml` là cụm đầy đủ. Dev hằng ngày và máy các bạn khác dùng file đầu.
 
@@ -169,12 +174,13 @@ Chỉ áp cho lập lịch mới và "Lập lại". `parse_trip`, hỏi lại (`
 planner (điều phối, stream jobs)
   parse_trip → clarify?  (như cũ)
   PLANNER_MODE=multi:
-    XADD agent_jobs × 3: {parent: job_id, role, trip}
-    chờ kết quả ở results:{job_id}, tối đa 45 giây
-planner (agent, stream agent_jobs) — mỗi role một việc, chạy song song
+    key = agent:{uuid}   (mỗi lần chạy một khoá, hết hạn sau 300 giây)
+    XADD agent_jobs × 3: {key, role, trip, rain, user_messages}
+    BLPOP key tối đa 45 giây: event thì phát lại cho client, kết quả thì gom
+planner-agent (stream agent_jobs, group agents) — mỗi role một việc, chạy song song
     vòng lặp tool search_places (tối đa 4 lượt) → submit_shortlist(place_ids, note)
-    mỗi lượt tìm phát event tool_call kèm agent=role vào events:{job_id}
-    RPUSH results:{job_id}
+    mỗi lượt tìm: RPUSH key một event tool_call kèm agent=role
+    RPUSH key kết quả {role, place_ids, note} hoặc {role, error}; XACK dù lỗi
 planner (điều phối)
     gộp 3 danh sách → agent tổng hợp = agent.plan với `seen` nạp sẵn các Place đã chọn
     → submit_itinerary → build_itinerary → vòng sửa như cũ (Draft sai: làm lại 1 lần; có Conflict: sửa 1 lần)
@@ -186,12 +192,16 @@ planner (điều phối)
 | `tham-quan` | Tham quan, cafe, giải trí; ưu tiên trong nhà cho ngày mưa | ~2 × số Stop còn lại theo Pace |
 | `cho-o` | Chỗ ở (chỉ khi Trip dài hơn 1 ngày) | 3 |
 
-- **Hai stream tách nhau** (`jobs` cho điều phối, `agent_jobs` cho agent) để không bị kẹt: nếu chung một stream, ba việc lập lịch đồng thời sẽ chiếm hết worker ở vai điều phối và không còn ai chạy agent.
+- **Hai stream tách nhau** (`jobs` cho điều phối, `agent_jobs` cho agent) để không bị kẹt: nếu chung một stream, ba việc lập lịch đồng thời sẽ chiếm hết worker ở vai điều phối và không còn ai chạy agent. Trong cụm: `planner` × 2 đọc `jobs`, `planner-agent` × 3 đọc `agent_jobs`.
+- **Không có Redis** (S22): ba agent chạy bằng 3 thread trong tiến trình, mỗi thread một kết nối database, thông điệp về qua hàng đợi trong RAM. Phần còn lại giống hệt.
+- Việc gửi cho agent mang nguyên Trip, khả năng mưa và tin nhắn User: điều phối đang ở trong transaction chưa commit (S18) nên agent không đọc được Trip từ database. Agent chỉ đọc bảng `places`.
+- Code ép kind theo role: `an-uong` chỉ nhận Place `an-uong`; `tham-quan` nhận `tham-quan`, `cafe`, `giai-tri`; `cho-o` chỉ nhận `cho-o`. `place_id` agent chưa nhận từ `search_places` bị bỏ khỏi danh sách; danh sách rỗng là lỗi.
+- `agent_jobs` giao nhiều nhất một lần (S24): không nhịp tim, không nhận lại. Việc xếp hàng quá 45 giây thì agent bỏ qua.
 - ADR-0001 vẫn giữ: agent tổng hợp chỉ được dùng Place trong `seen`. Nó được gọi thêm `search_places` tối đa 2 lượt để lấp chỗ thiếu.
 - Place đã ghim (khi "Lập lại") được nạp vào `seen` và brief như hiện nay.
-- **Dự phòng:** một agent lỗi, hoặc quá 45 giây chưa đủ kết quả → phát `thinking` "Chuyển sang lập lịch thường…" và chạy `agent.plan` đơn như cũ. Người dùng luôn nhận được Itinerary.
-- Event `thinking` và `tool_call` thêm trường tuỳ chọn `agent`. Client hiện tại bỏ qua trường lạ, nên không phải sửa; hiện nhãn agent trong Chat là việc tuỳ chọn.
-- **Đánh giá:** chạy golden set (kéo một phần #6 lên T4) ở cả `single` và `multi`, báo: % Itinerary hợp lệ, số Conflict, thời gian, số lượt gọi LLM. `multi` chỉ thành mặc định của demo nếu không kém `single` về % hợp lệ.
+- **Dự phòng:** một agent lỗi (chuyển ngay, không chờ), Redis lỗi, hoặc quá 45 giây chưa đủ kết quả → phát `thinking` "Chuyển sang lập lịch thường…" và chạy `agent.plan` đơn nguyên bản; các danh sách đã có bị bỏ. Người dùng luôn nhận được Itinerary.
+- Event `tool_call` của chuyên gia có thêm trường `agent`. Chat ghép nhãn vào dòng tìm kiếm: "Ăn uống · Đang tìm: …" (S25).
+- **Đánh giá:** `scripts/golden.py` chạy 8 prompt (một phần #6) ở cả `single` và `multi` với provider trong `.env`, báo: % Itinerary hợp lệ, số Conflict, thời gian, số lượt gọi LLM, số lần `multi` rơi về dự phòng. `multi` chỉ thành mặc định của demo nếu không kém `single` về % hợp lệ. Cụm mặc định `single`.
 
 ## 8. `places`
 

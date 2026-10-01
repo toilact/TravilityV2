@@ -1,4 +1,4 @@
-# Cụm phân tán (spec scale §4). T3: db + redis + llm-gateway + 2 api + 2 planner + nginx.
+# Cụm phân tán (spec scale §4). T4: db + redis + llm-gateway + 2 api + 2 planner + 3 planner-agent + nginx.
 # Dùng chung cổng 5432/6379/8000 với docker-compose.yml → `docker compose down` trước khi bật cụm.
 name: travility-cluster
 services:
@@ -48,6 +48,7 @@ services:
       EMBED_BASE_URL: http://llm-gateway:8000/v1
       DEMO_TODAY: ${DEMO_TODAY:-}
       PLAN_RPM: ${PLAN_RPM:-5}
+      PLANNER_MODE: ${PLANNER_MODE:-single}
     deploy:
       replicas: 2
     depends_on: &app_deps
@@ -64,6 +65,14 @@ services:
     environment: *app_env
     deploy:
       replicas: 2
+    depends_on: *app_deps
+  planner-agent:  # agent chuyên gia của lập lịch đa agent (PLANNER_MODE=multi); đọc stream agent_jobs
+    build: ./server
+    command: ["uv", "run", "--no-dev", "python", "-m", "app.worker", "--stream", "agent_jobs"]
+    env_file: ./server/.env
+    environment: *app_env
+    deploy:
+      replicas: 3
     depends_on: *app_deps
   nginx:
     image: nginx:1.27-alpine

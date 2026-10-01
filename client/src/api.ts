@@ -25,7 +25,7 @@ export type Itinerary = {
 export type AgentEvent =
   | { type: 'thinking'; text: string }
   | { type: 'trip'; trip_id: number; trip: { budget: number }; center: [number, number] }
-  | { type: 'tool_call'; name: string; query: string; places: Place[] }
+  | { type: 'tool_call'; name: string; query: string; places: Place[]; agent?: string }  // agent: role chuyên gia khi lập lịch đa agent
   | { type: 'clarify'; trip_id: number; questions: Question[] }
   | {
     type: 'itinerary'; itinerary: Itinerary; places: Record<string, Place>; trip_id: number; version: number
@@ -61,6 +61,14 @@ export function clarifyAfter(current: Clarify | null, e: AgentEvent): Clarify | 
   if (e.type === 'clarify') return { tripId: e.trip_id, questions: e.questions }
   if (e.type === 'itinerary') return null
   return current
+}
+
+const AGENT_LABELS: Record<string, string> = { 'an-uong': 'Ăn uống', 'tham-quan': 'Tham quan', 'cho-o': 'Chỗ ở' }
+
+export function searchLine(e: { query: string; places: unknown[]; agent?: string }): string {
+  const line = `Đang tìm: ${e.query} (${e.places.length} kết quả)`
+  const label = e.agent && AGENT_LABELS[e.agent]
+  return label ? `${label} · ${line}` : line
 }
 
 /** Event kết thúc một lượt; thêm event mới ở server thì cân nhắc thêm vào đây. */

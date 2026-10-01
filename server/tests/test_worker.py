@@ -1,12 +1,14 @@
 import json
 import threading
 import time
+from contextlib import nullcontext
 
 import pytest
 from redis.exceptions import RedisError
 
-from app import forecast, jobs, llm, rules, trips, worker
+from app import forecast, jobs, llm, multi, rules, trips, worker
 from app.db import connect
+from app.domain import Trip
 from tests.conftest import TEST_URL
 from tests.fakes import FakeClient, reply
 from tests.helpers import add_place, unit_vec
@@ -250,3 +252,62 @@ def test_live_long_job_is_not_stolen(conn, rds, monkeypatch):
     t.join()
     w1_conn.close()
     assert types(rds, job_id) == ["thinking", "trip", "tool_call", "itinerary", "end"] and count(conn, "trips") == 1
+
+
+def agent_job(rds, monkeypatch, conn, role="tham-quan"):
+    monkeypatch.setattr(multi, "agent_conn", lambda: nullcontext(conn))
+    trip = Trip(destination="da-lat", days=1, budget=2_000_000, travel_mode="grab")
+    recv = multi._remote(trip, None, [], [role])
+    worker.ensure_group(rds, multi.AGENT_STREAM, multi.AGENT_GROUP)
+    return recv
+
+
+def agent_pending(rds):
+    return rds.xpending(multi.AGENT_STREAM, multi.AGENT_GROUP)["pending"]
+
+
+def test_agent_step_runs_specialist_and_pushes_result(conn, rds, monkeypatch):
+    pid = add_place(conn, "Cafe", "cafe")
+    use_llm(monkeypatch, [reply(("search_places", {"query": "cafe"})),
+                          reply(("submit_shortlist", {"place_ids": [pid], "note": "n"}))])
+    recv = agent_job(rds, monkeypatch, conn)
+    assert worker.agent_step(rds, "a1") is True
+    assert 0 < rds.ttl(rds.keys("agent:*")[0]) <= multi.KEY_TTL_S
+    ev = recv(0.5)
+    assert ev["type"] == "tool_call" and ev["agent"] == "tham-quan"
+    assert recv(0.5) == {"role": "tham-quan", "place_ids": [pid], "note": "n"}
+    assert agent_pending(rds) == 0
+
+
+def test_agent_step_error_pushes_error_and_acks(conn, rds, monkeypatch):
+    use_llm(monkeypatch, [RuntimeError("boom")])
+    recv = agent_job(rds, monkeypatch, conn)
+    assert worker.agent_step(rds, "a1") is True
+    assert recv(0.5) == {"role": "tham-quan", "error": "boom"}
+    assert agent_pending(rds) == 0
+
+
+def test_agent_step_drops_job_older_than_coordinator_wait(conn, rds, monkeypatch):
+    use_llm(monkeypatch, [])  # gọi LLM là IndexError → kết quả lỗi bị đẩy vào khoá → test đỏ
+    monkeypatch.setattr(multi, "agent_conn", lambda: nullcontext(conn))
+    worker.ensure_group(rds, multi.AGENT_STREAM, multi.AGENT_GROUP)
+    old = f"{int((time.time() - multi.AGENT_WAIT_S - 5) * 1000)}-0"
+    trip = Trip(destination="da-lat", days=1, budget=2_000_000, travel_mode="grab")
+    rds.xadd(multi.AGENT_STREAM, {"key": "agent:cu", "role": "tham-quan", "trip": trip.model_dump_json(),
+                                  "rain": "null", "user_messages": "[]"}, id=old)
+    assert worker.agent_step(rds, "a1") is True
+    assert rds.llen("agent:cu") == 0 and agent_pending(rds) == 0
+
+
+def test_agent_step_idle_returns_false(rds):
+    worker.ensure_group(rds, multi.AGENT_STREAM, multi.AGENT_GROUP)
+    assert worker.agent_step(rds, "a1") is False
+
+
+def test_coordinator_never_takes_agent_jobs(conn, rds, monkeypatch):
+    """Hai stream tách nhau (spec §7): worker điều phối bận hết thì agent vẫn có người chạy."""
+    use_llm(monkeypatch, [RuntimeError("x")])
+    recv = agent_job(rds, monkeypatch, conn)
+    assert worker.step(conn, rds, "w1") is False
+    assert rds.xlen(multi.AGENT_STREAM) == 1 and recv(0.1) is None
+    assert worker.agent_step(rds, "a1") is True
