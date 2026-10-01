@@ -140,3 +140,57 @@ def test_redis_down_still_answers(up, monkeypatch):
     monkeypatch.setattr(kv, "_client", None)
     assert post().status_code == 200 and post().headers["x-cache"] == "miss"
     assert len(up.calls) == 2
+
+
+class Clock:
+    def __init__(self, second_of_minute):
+        self.t, self.slept = 60_000_000.0 + second_of_minute, []
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        self.slept.append(s)
+        self.t += s
+
+
+def use_clock(monkeypatch, second_of_minute, rpm):
+    c = Clock(second_of_minute)
+    monkeypatch.setattr(gateway, "_now", c.now)
+    monkeypatch.setattr(gateway, "_sleep", c.sleep)
+    monkeypatch.setattr(settings, "llm_rpm", rpm)
+    return c
+
+
+def test_out_of_slots_waits_for_next_minute(up, rds, monkeypatch):
+    clock = use_clock(monkeypatch, second_of_minute=50, rpm=2)
+    assert [ask(i).status_code for i in range(3)] == [200, 200, 200]
+    assert clock.slept == [10] and len(up.calls) == 3
+    assert rds.get("gw:stat:wait") == "1"
+
+
+def test_gives_429_after_waiting_30s(up, monkeypatch):
+    clock = use_clock(monkeypatch, second_of_minute=0, rpm=1)
+    ask(1)
+    r = ask(2)
+    assert r.status_code == 429 and "hết lượt" in r.json()["error"]["message"]
+    assert clock.slept == [30] and len(up.calls) == 1
+
+
+def test_cache_hit_does_not_take_a_slot(up, monkeypatch):
+    clock = use_clock(monkeypatch, second_of_minute=0, rpm=1)
+    assert [post().status_code, post().status_code] == [200, 200]
+    assert clock.slept == [] and len(up.calls) == 1
+
+
+def test_embeddings_not_rate_limited(up, monkeypatch):
+    clock = use_clock(monkeypatch, second_of_minute=0, rpm=1)
+    for i in range(3):
+        assert client.post("/v1/embeddings", json={**EMB, "input": [f"q{i}"]}).status_code == 200
+    assert clock.slept == []
+
+
+def test_rpm_zero_means_no_limit(up, rds):
+    for i in range(5):
+        ask(i)
+    assert len(up.calls) == 5 and rds.keys("gw:rl:*") == []

@@ -5,6 +5,7 @@ Chạy: uvicorn app.gateway:app
 """
 import hashlib
 import json
+import time
 
 import httpx
 from fastapi import Body, FastAPI
@@ -15,9 +16,11 @@ from app import kv
 from app.config import settings
 
 CHAT, EMBED = "chat/completions", "embeddings"
+MAX_WAIT_S = 30  # hết lượt của provider: chờ tối đa bấy nhiêu rồi mới trả 429
 
 app = FastAPI(title="Travility llm-gateway")
 http = httpx.Client(timeout=60)  # test thay bằng MockTransport
+_now, _sleep = time.time, time.sleep  # test thay bằng đồng hồ giả
 
 
 def _redis(op: str, *args, default=None, **kw):
@@ -48,9 +51,37 @@ def _post(base: str, api_key: str, path: str, body: dict) -> httpx.Response:
         return _synthetic(504, f"provider không phản hồi ({type(e).__name__})")
 
 
+def _take_slot() -> bool:
+    """Giữ một lượt gọi provider chính trong phút này. Hết lượt thì chờ sang phút sau, tối đa MAX_WAIT_S.
+
+    ponytail: cửa sổ cố định theo phút, chỉ áp cho chat của provider chính. Embedding không giới hạn
+    (cache không hết hạn nên gần như luôn trúng); cần thì thêm bộ đếm theo host của provider.
+    """
+    if not settings.llm_rpm:
+        return True
+    waited = 0.0
+    while True:
+        now = _now()
+        key = f"gw:rl:{int(now // 60)}"
+        n = _redis("incr", key, default=0)
+        if n == 1:
+            _redis("expire", key, 120)
+        if n <= settings.llm_rpm:
+            return True
+        if waited >= MAX_WAIT_S:
+            return False
+        if not waited:
+            _stat("wait")
+        pause = min(60 - now % 60, MAX_WAIT_S - waited)
+        _sleep(pause)
+        waited += pause
+
+
 def _call(path: str, body: dict) -> httpx.Response:
     if path == EMBED:
         return _post(settings.embed_base_url, settings.embed_api_key, path, body)
+    if not _take_slot():
+        return _synthetic(429, "llm-gateway: hết lượt gọi provider trong phút này, thử lại sau ít giây")
     return _post(settings.llm_base_url, settings.llm_api_key, path, body)
 
 
