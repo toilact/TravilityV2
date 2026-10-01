@@ -22,11 +22,6 @@ logger = logging.getLogger(__name__)
 _now = time.monotonic
 AGENT_WAIT_S = 45  # chờ đủ danh sách tối đa bấy nhiêu giây rồi quay về agent đơn
 FALLBACK_TEXT = "Chuyển sang lập lịch thường…"
-
-
-def agent_conn():
-    """Mỗi chuyên gia một kết nối riêng để đọc Place; có PLACES_URL thì không cần database. Test thay bằng kết nối test."""
-    return nullcontext(None) if settings.places_url else connect()
 AGENT_STREAM, AGENT_GROUP = "agent_jobs", "agents"
 KEY_TTL_S = 300  # khoá agent:{uuid} của một lần chạy sống bấy nhiêu giây
 
@@ -39,6 +34,12 @@ ROLES = {
     "cho-o": ("Chỗ ở", ("cho-o",), "chỗ ở hợp Budget và Tag"),
 }
 MAX_SEARCHES = 4
+
+
+def agent_conn():
+    """Mỗi chuyên gia một kết nối riêng để đọc Place; có PLACES_URL thì không cần database. Test thay bằng kết nối test."""
+    return nullcontext(None) if settings.places_url else connect()
+
 
 SPECIALIST_PROMPT = """Bạn là chuyên gia {label} trong nhóm lập lịch du lịch cho người Việt.
 Việc của bạn: chọn danh sách ngắn khoảng {n} Place — {task}. Một agent khác sẽ xếp lịch từ danh sách này.

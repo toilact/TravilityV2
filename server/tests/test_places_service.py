@@ -83,7 +83,7 @@ def test_guarded_reports_places_down():
     assert out[-1] == trips.sse({"type": "error", "message": places_client.PLACES_DOWN})
 
 
-def test_plan_through_service_then_places_dies(conn, client, svc, monkeypatch):
+def test_plan_through_service_then_places_dies(conn, client, svc, monkeypatch):  # noqa: F811
     """Lập lịch qua service places; places chết → Trip cũ vẫn mở được, việc cần Place trả 503 (spec S27)."""
     use_llm(monkeypatch, happy(add_place(conn, kind="cafe")))
     h = auth(client)
@@ -101,7 +101,7 @@ def test_plan_through_service_then_places_dies(conn, client, svc, monkeypatch):
 
 
 def test_distance_endpoint_returns_matrix(monkeypatch):
-    def goong(origins, destinations, mode, client=None):
+    def goong(origins, destinations, mode):
         distance._cache[distance._key(origins[0], destinations[0], "bike")] = (1.5, 4)
     monkeypatch.setattr(distance, "goong", goong)
     r = TestClient(places_service.app).post("/distance", json={
