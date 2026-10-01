@@ -68,3 +68,13 @@ def test_element_not_ok_is_skipped():
                       client_returning({"rows": [{"elements": [{"status": "ZERO_RESULTS"}, OK]}]}))
     assert distance.lookup(A, B, "xe-may") is None
     assert distance.lookup(A, C, "xe-may") == (2.34, 7)
+
+
+def test_km_shared_through_redis(rds):
+    distance.prefetch([A], [B], "xe-may", client_returning({"rows": [{"elements": [OK]}]}))
+    distance._cache.clear()  # tiến trình khác: lớp cache trong RAM trống
+    calls = []
+    distance.prefetch([A], [B], "xe-may", client_returning({"rows": [{"elements": [OK]}]}, calls=calls))
+    assert calls == []  # đã có trong Redis → không gọi Goong
+    assert distance.lookup(A, B, "xe-may") == (2.34, 7)
+    assert rds.ttl("goong:11.94:108.44:11.95:108.44:bike") == -1

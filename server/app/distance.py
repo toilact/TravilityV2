@@ -1,15 +1,17 @@
+import json
 import time
 
 import httpx
 
+from app import kv
 from app.config import settings
 
 URL = "https://rsapi.goong.io/DistanceMatrix"
 VEHICLE = {"xe-may": "bike", "xe-may-rieng": "bike", "grab": "car", "o-to-rieng": "car"}  # Travel Mode → xe của Goong
 COOLDOWN_S = 60
 
-# ponytail: cache trong tiến trình, không giới hạn — số Place hữu hạn. Chạy nhiều worker hoặc cần giữ qua
-# lần khởi động lại thì chuyển xuống DB (demo_cache, #14).
+# Lớp cache trong tiến trình, đứng trước Redis (kv). Km giữa hai điểm không đổi nên không cần xoá.
+# ponytail: không giới hạn kích thước — số Place hữu hạn.
 _cache: dict[tuple, tuple[float, int]] = {}
 _down_until = 0.0
 
@@ -18,9 +20,16 @@ def _key(a, b, vehicle: str) -> tuple:
     return (a.lat, a.lon, b.lat, b.lon, vehicle)
 
 
+def _kv_key(k: tuple) -> str:
+    return "goong:" + ":".join(map(str, k))
+
+
 def lookup(a, b, mode: str) -> tuple[float, int] | None:
-    """(km, phút) đường thật đã lấy từ Goong; chưa có → None. Không gọi mạng."""
-    return _cache.get(_key(a, b, VEHICLE.get(mode, "bike")))
+    """(km, phút) đường thật đã lấy từ Goong; chưa có → None. Không gọi Goong."""
+    k = _key(a, b, VEHICLE.get(mode, "bike"))
+    if k not in _cache and (raw := kv.get(_kv_key(k))):
+        _cache[k] = tuple(json.loads(raw))
+    return _cache.get(k)
 
 
 def prefetch(origins: list, destinations: list, mode: str, client: httpx.Client | None = None) -> None:
@@ -29,7 +38,7 @@ def prefetch(origins: list, destinations: list, mode: str, client: httpx.Client 
     vehicle = VEHICLE.get(mode, "bike")
     if not settings.goong_api_key or time.monotonic() < _down_until:
         return
-    if all(_key(a, b, vehicle) in _cache for a in origins for b in destinations):
+    if all(lookup(a, b, mode) is not None for a in origins for b in destinations):
         return
     params = {"origins": "|".join(f"{p.lat},{p.lon}" for p in origins),
               "destinations": "|".join(f"{p.lat},{p.lon}" for p in destinations),
@@ -40,8 +49,10 @@ def prefetch(origins: list, destinations: list, mode: str, client: httpx.Client 
         for a, row in zip(origins, r.json()["rows"]):
             for b, el in zip(destinations, row["elements"]):
                 if el["status"] == "OK":
-                    _cache[_key(a, b, vehicle)] = (round(el["distance"]["value"] / 1000, 2),
-                                                   max(1, round(el["duration"]["value"] / 60)))
+                    k, v = _key(a, b, vehicle), (round(el["distance"]["value"] / 1000, 2),
+                                                 max(1, round(el["duration"]["value"] / 60)))
+                    _cache[k] = v
+                    kv.put(_kv_key(k), json.dumps(v))
     except (httpx.HTTPError, KeyError, ValueError, TypeError):
         # Km thật là phần phụ: lỗi thì make_leg dùng chim bay × 1.3. Nghỉ một lúc để mất mạng không làm
         # mỗi ngày của Itinerary chờ thêm một timeout.
