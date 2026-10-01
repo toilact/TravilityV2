@@ -22,3 +22,14 @@ def test_demo_today_garbage_rejected_at_startup():
 def test_gateway_cache_rejects_unknown_mode():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, gateway_cache="record")
+
+
+def test_planner_mode_blank_is_single():
+    assert Settings(_env_file=None, planner_mode="").planner_mode == "single"
+    assert Settings(_env_file=None).planner_mode == "single"
+
+
+def test_planner_mode_multi_accepted_and_garbage_rejected():
+    assert Settings(_env_file=None, planner_mode="multi").planner_mode == "multi"
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, planner_mode="nhieu")

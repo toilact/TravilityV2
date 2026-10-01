@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # Scale (spec 2026-10-01 §4): thiếu biến nào thì phần đó chạy như chế độ một tiến trình.
     redis_url: str = ""
     plan_rpm: int = 5  # việc lập lịch mỗi phút cho một User (cần REDIS_URL); 0 = không giới hạn
+    planner_mode: Literal["single", "multi"] = "single"  # multi = 3 agent chuyên gia + tổng hợp (spec §7)
     demo_today: dt.date | None = None  # đóng băng "hôm nay" để bản ghi replay của llm-gateway trúng cache
     # llm-gateway (app/gateway.py)
     gateway_cache: Literal["off", "on", "replay"] = "on"
@@ -33,6 +34,11 @@ class Settings(BaseSettings):
     @classmethod
     def _blank_is_none(cls, v):
         return v or None
+
+    @field_validator("planner_mode", mode="before")
+    @classmethod
+    def _blank_is_single(cls, v):
+        return v or "single"
 
 
 settings = Settings()

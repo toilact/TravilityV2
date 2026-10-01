@@ -1,9 +1,23 @@
 """Lập lịch đa agent (spec scale §7): ba chuyên gia tìm Place song song, agent tổng hợp xếp lịch."""
 import copy
 import json
+import logging
+import queue
+import threading
+import time
+from collections.abc import Iterator
 
-from app.agent import PLAN_TOOLS, run_search, trip_brief
+from app import agent
+from app.agent import PLAN_TOOLS, for_llm, run_search, trip_brief
+from app.db import connect
 from app.domain import PACE_STOPS, Place, Trip
+from app.places import get_places
+
+logger = logging.getLogger(__name__)
+_now = time.monotonic
+agent_conn = connect  # mỗi chuyên gia một kết nối riêng; test thay bằng kết nối test
+AGENT_WAIT_S = 45  # chờ đủ danh sách tối đa bấy nhiêu giây rồi quay về agent đơn
+FALLBACK_TEXT = "Chuyển sang lập lịch thường…"
 
 # role → (nhãn, các kind được chọn, việc cần làm)
 ROLES = {
@@ -93,3 +107,76 @@ def shortlist(conn, client, model: str, trip: Trip, role: str, embed_fn, rain, u
                 result = f"Lỗi: không có tool {c.function.name}."
             messages.append({"role": "tool", "tool_call_id": c.id, "content": result})
     raise AgentFailed(f"agent {role} không nộp được danh sách ngắn")
+
+
+def _work(put, client, model: str, trip: Trip, role: str, embed_fn, rain, user_messages: list[str]) -> None:
+    """Chạy một chuyên gia; event, kết quả hoặc lỗi {"role", "error"} đều đi qua put."""
+    try:
+        with agent_conn() as conn:
+            put(shortlist(conn, client, model, trip, role, embed_fn, rain, user_messages, put))
+    except Exception as e:  # lỗi nào cũng thành "agent lỗi": điều phối quay về agent đơn
+        logger.warning("agent %s lỗi: %s", role, e)
+        put({"role": role, "error": str(e)})
+
+
+def _local(client, model: str, trip: Trip, embed_fn, rain, user_messages: list[str], roles: list[str]):
+    """Không có Redis: mỗi chuyên gia một thread trong tiến trình, thông điệp về qua Queue.
+
+    ponytail: thread quá hạn không huỷ được, chạy nền tới khi xong rồi kết quả bị bỏ.
+    """
+    q: queue.Queue = queue.Queue()
+    for role in roles:
+        threading.Thread(target=_work, args=(q.put, client, model, trip, role, embed_fn, rain, user_messages),
+                         daemon=True).start()
+
+    def recv(timeout: float) -> dict | None:
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    return recv
+
+
+def gather(recv, roles: list[str]):
+    """Phát lại event của các chuyên gia; return danh sách kết quả, hoặc None khi có agent lỗi hay quá hạn."""
+    deadline, results = _now() + AGENT_WAIT_S, []
+    while len(results) < len(roles):
+        left = deadline - _now()
+        if left <= 0:
+            return None
+        m = recv(min(left, 0.5))
+        if m is None:
+            continue
+        if "type" in m:
+            yield m
+        elif "error" in m:
+            return None
+        else:
+            results.append(m)
+    return results
+
+
+def _notes(results: list[dict], places: dict[int, Place]) -> str:
+    lines = ["Các chuyên gia đã chọn sẵn Place dưới đây (place_id dùng được luôn). Ưu tiên dùng các Place này; "
+             "chỉ gọi search_places khi còn thiếu, tối đa 2 lần."]
+    for r in results:
+        lines.append(f"{ROLES[r['role']][0]} — {r['note']}")
+        lines.append(json.dumps([for_llm(places[i]) for i in r["place_ids"] if i in places], ensure_ascii=False))
+    return "\n".join(lines)
+
+
+def plan(conn, client, model: str, trip: Trip, embed_fn, rain, hub=None, user_messages: list[str] = (),
+         previous=None, local: bool = False) -> Iterator[dict]:
+    """Cùng hợp đồng với agent.plan. Thiếu danh sách của bất kỳ chuyên gia nào → agent đơn nguyên bản (spec §7)."""
+    roles = roles_for(trip)
+    yield {"type": "thinking", "text": "Các chuyên gia đang tìm địa điểm…"}
+    recv = _local(client, model, trip, embed_fn, rain, list(user_messages), roles)
+    results = yield from gather(recv, roles)
+    if results is None:
+        yield {"type": "thinking", "text": FALLBACK_TEXT}
+        yield from agent.plan(conn, client, model, trip, embed_fn, rain, hub, user_messages, previous)
+        return
+    seeded = get_places(conn, [i for r in results for i in r["place_ids"]])
+    yield from agent.plan(conn, client, model, trip, embed_fn, rain, hub, user_messages, previous,
+                          seeded=seeded, notes=_notes(results, seeded), max_searches=2)

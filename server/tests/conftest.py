@@ -5,6 +5,7 @@ import pytest
 os.environ["GOONG_API_KEY"] = ""  # máy dev có key trong .env — test không được gọi Goong thật
 os.environ["REDIS_URL"] = ""  # test không đụng Redis, trừ khi xin fixture rds
 os.environ["DEMO_TODAY"] = ""
+os.environ["PLANNER_MODE"] = ""  # máy dev có thể đặt multi trong .env — test mặc định chạy agent đơn
 
 from app import distance, kv
 from app.config import settings

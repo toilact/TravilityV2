@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, ValidationError
 
-from app import forecast, jobs, llm
+from app import forecast, jobs, llm, multi
 from app.agent import (TripParseError, UnsupportedDestination, apply_answers, merge_trip, missing_questions,
                        parse_trip, plan)
 from app.domain import Hub, Itinerary, Trip, TripAnswers
@@ -106,8 +106,9 @@ def log_message(conn, trip_id: int, role: str, text: str, version: int | None = 
 
 def _plan_and_save(conn, client, trip_id: int, trip: Trip, dest: dict, user_messages: list[str], previous=None):
     rain = forecast.get_rain_chance(dest["lat"], dest["lon"], trip.start_date, trip.days, today=_today())
-    for ev in plan(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages,
-                   previous):
+    planner = multi.plan if settings.planner_mode == "multi" else plan
+    for ev in planner(conn, client, settings.llm_model, trip, llm.embed, rain, hub_for(dest, trip), user_messages,
+                      previous):
         if ev["type"] == "itinerary":
             version = save_itinerary(conn, trip_id, ev["itinerary"], ev["places"])
             log_message(conn, trip_id, "ai", ev["itinerary"]["summary"], version)

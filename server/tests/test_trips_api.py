@@ -9,12 +9,12 @@ import openai
 import pytest
 from fastapi.testclient import TestClient
 
-from app import forecast, jobs, kv, llm, rules, trips, worker
+from app import forecast, jobs, kv, llm, multi, rules, trips, worker
 from app.config import settings
 from app.db import get_conn
 from app.domain import Trip
 from app.main import app
-from tests.fakes import FakeClient, reply
+from tests.fakes import FakeClient, RoleClient, reply
 from tests.helpers import add_place, unit_vec
 
 
@@ -439,3 +439,26 @@ def test_queue_mode_replan_carries_changes_through_the_queue(client, conn, monke
                     headers=h)
     assert events(r)[-1]["type"] == "itinerary" and events(r)[-1]["version"] == 2
     assert client.get(f"/trips/{trip_id}", headers=h).json()["trip"]["budget"] == 3_000_000
+
+
+def multi_llm(food, cafe):
+    search = reply(("search_places", {"query": "x"}))
+    return RoleClient({
+        "record_trip": [reply(("record_trip", {"destination": "da-lat", "days": 1, "budget": 2_000_000,
+                                               "travel_mode": "grab"}))],
+        "chuyên gia Ăn uống": [search, reply(("submit_shortlist", {"place_ids": [food], "note": "n"}))],
+        "chuyên gia Tham quan": [search, reply(("submit_shortlist", {"place_ids": [cafe], "note": "n"}))],
+        "trợ lý lập lịch trình": [reply(("submit_itinerary", {"summary": "ok", "days": [{"stops": [
+            {"place_id": cafe, "start_time": "09:00", "duration_min": 60, "reason": "cafe"}]}]}))]})
+
+
+def test_multi_mode_plans_with_specialists_in_threads(client, conn, monkeypatch):
+    monkeypatch.setattr(settings, "planner_mode", "multi")
+    monkeypatch.setattr(multi, "agent_conn", lambda: nullcontext(conn))
+    rc = multi_llm(add_place(conn, "Quán", "an-uong"), add_place(conn, "Cafe", "cafe"))
+    monkeypatch.setattr(llm, "chat_client", lambda: rc)
+    h = auth(client)
+    evs = events(client.post("/trips", json={"message": "Đà Lạt 1 ngày 2 triệu"}, headers=h))
+    assert {e.get("agent") for e in evs if e["type"] == "tool_call"} == {"an-uong", "tham-quan"}
+    assert evs[-1]["type"] == "itinerary" and evs[-1]["version"] == 1
+    assert client.get(f"/trips/{evs[-1]['trip_id']}", headers=h).json()["version"] == 1

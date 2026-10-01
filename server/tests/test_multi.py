@@ -1,3 +1,4 @@
+import time
 from contextlib import nullcontext
 
 import pytest
@@ -15,6 +16,7 @@ SEARCH = reply(("search_places", {"query": "x"}))
 @pytest.fixture(autouse=True)
 def env(conn, monkeypatch):
     monkeypatch.setattr(rules, "MEALS", ())
+    monkeypatch.setattr(multi, "agent_conn", lambda: nullcontext(conn))
 
 
 def fake_embed(texts):
@@ -78,3 +80,64 @@ def test_fifth_search_is_refused(conn):
     assert len(events) == 4 and out["place_ids"] == [cafe]
     tool = [m["content"] for m in client.calls[-1]["messages"] if m.get("role") == "tool"]
     assert "hết lượt tìm" in tool[4]
+
+
+def stops(*ids):
+    return {"summary": "Lịch trình thử", "days": [{"stops": [
+        {"place_id": pid, "start_time": f"{9 + i:02d}:00", "duration_min": 60, "reason": "hợp sở thích"}
+        for i, pid in enumerate(ids)]}]}
+
+
+def used(events):
+    return [s["place_id"] for s in events[-1]["itinerary"]["days"][0]["stops"]]
+
+
+def test_multi_plan_builds_itinerary_from_shortlists(conn):
+    food, cafe = add_place(conn, "Quán Bà Tư", "an-uong"), add_place(conn, "Cafe Tùng", "cafe")
+    rc = RoleClient({FOOD: [SEARCH, pick(food, note="hợp bữa trưa")], SIGHT: [SEARCH, pick(cafe)],
+                     SYNTH: [reply(("submit_itinerary", stops(food, cafe)))]})
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    assert events[0] == {"type": "thinking", "text": "Các chuyên gia đang tìm địa điểm…"}
+    assert {e["agent"] for e in events if e["type"] == "tool_call"} == {"an-uong", "tham-quan"}
+    assert used(events) == [food, cafe]
+    brief = rc.calls_for(SYNTH)[0]["messages"][1]["content"]
+    assert "Quán Bà Tư" in brief and "hợp bữa trưa" in brief and "Cafe Tùng" in brief
+    assert not rc.calls_for(STAY)  # Trip 1 ngày không gọi agent chỗ ở
+
+
+def test_synthesizer_still_rejects_place_outside_shortlists(conn):
+    food, cafe, other = add_place(conn, "Quán", "an-uong"), add_place(conn, "Cafe", "cafe"), add_place(conn, "Lạ", "cafe")
+    # "Lạ" có thật và chuyên gia đã thấy khi tìm, nhưng không được chọn vào danh sách ngắn
+    rc = RoleClient({FOOD: [SEARCH, pick(food)], SIGHT: [SEARCH, pick(cafe)],
+                     SYNTH: [reply(("submit_itinerary", stops(other))), reply(("submit_itinerary", stops(cafe)))]})
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    assert used(events) == [cafe]
+    tool = [m["content"] for m in rc.calls_for(SYNTH)[-1]["messages"] if m.get("role") == "tool"]
+    assert tool[0].startswith("Lỗi")
+
+
+def test_agent_error_falls_back_to_single(conn):
+    cafe = add_place(conn, "Cafe", "cafe")
+    rc = RoleClient({FOOD: [RuntimeError("boom")], SIGHT: [SEARCH, pick(cafe)],
+                     SYNTH: [SEARCH, reply(("submit_itinerary", stops(cafe)))]})
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    assert {"type": "thinking", "text": multi.FALLBACK_TEXT} in events
+    assert used(events) == [cafe]
+    assert "Các chuyên gia đã chọn" not in rc.calls_for(SYNTH)[0]["messages"][1]["content"]
+
+
+def test_slow_agent_falls_back_after_deadline(conn, monkeypatch):
+    monkeypatch.setattr(multi, "AGENT_WAIT_S", 0.3)
+    cafe = add_place(conn, "Cafe", "cafe")
+
+    def slow():
+        time.sleep(0.8)
+        raise RuntimeError("muộn")
+
+    rc = RoleClient({FOOD: [slow], SIGHT: [SEARCH, pick(cafe)],
+                     SYNTH: [SEARCH, reply(("submit_itinerary", stops(cafe)))]})
+    t0 = time.monotonic()
+    events = list(multi.plan(conn, rc, "m", trip(), fake_embed, None))
+    assert time.monotonic() - t0 < 0.8  # không chờ agent chậm
+    assert {"type": "thinking", "text": multi.FALLBACK_TEXT} in events and used(events) == [cafe]
+    time.sleep(0.7)  # để thread chậm kết thúc trước khi fixture đóng kết nối
