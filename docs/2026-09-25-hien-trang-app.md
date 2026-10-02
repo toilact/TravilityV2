@@ -132,6 +132,18 @@ planner (điều phối) ──XADD agent_jobs × 3 {key, role, trip}──► p
 ```
 `server/scripts/golden.py` đo `single` và `multi` trên 8 prompt (bảng ở runbook).
 
+Trang "Hệ thống" và chế độ chỉ đọc (`server/app/system.py`, `server/app/nodes.py`, #52):
+```
+GET /system/status (cần đăng nhập) → {nodes[], served_by, my_shard, planner_mode, stats}
+  node một bản (4 Postgres, redis, llm-gateway, places): bản api đang trả lời dò song song, hạn 2 s
+  api / planner / planner-agent: nhịp tim ZADD nodes mỗi 2 s; im quá 6 s = chết; Redis chết → "unknown"
+  stats: số trúng / trượt cache, lượt gọi / chờ / chuyển provider, lượt bị rate limit, việc chờ / đang chạy
+  chế độ một tiến trình: chỉ có bản api này và database, stats = null
+pg-catalog chính chết: db.get_conn lùi về bản sao → đăng nhập vẫn chạy, đăng ký 503 "chế độ chỉ đọc";
+  api / planner vẫn khởi động được khi có SHARD_URLS (init_schemas chỉ cảnh báo)
+```
+`server/scripts/loadtest.py` in bảng p50 / p95 / lượt mỗi giây; `scripts/smoke_cluster.sh` dựng cụm và kiểm 15 node sống (số đo và bảng trình diễn ở runbook).
+
 Cách dựng cụm, ghi → phát lại kịch bản demo, tắt `planner`, xoá cache: [runbook-cum.md](runbook-cum.md). Chế độ `docker compose up` (một tiến trình, không gateway) vẫn là mặc định khi dev.
 
 ### 2.3 Nguyên tắc cần giữ khi mở rộng
@@ -178,7 +190,9 @@ Mở app ──► có token? ──không──► [Login] (một form, nút đ
 │⎋ │ ╰──────────────╯                                   ╰────────────╯│
 └──┴──────────────────────────────────────────────────────────────┘
 ```
-- **Rail** (`Rail.tsx`): logo, ＋ Chuyến mới, 🗂 popover "Chuyến đi của tôi" (Esc/bấm ra ngoài để đóng), ⎋ Đăng xuất.
+- **Rail** (`Rail.tsx`): logo, ＋ Chuyến mới, 🗂 popover "Chuyến đi của tôi" (Esc/bấm ra ngoài để đóng), 🖥 Hệ thống, ⎋ Đăng xuất.
+- **Trang "Hệ thống"** (`SystemPage.tsx`): lớp phủ bên phải rail, node xếp theo tầng (`tiers` ở `api.ts`), xanh / đỏ / xám, tự làm mới 2 giây sau mỗi phản hồi, Esc đóng.
+- **Nối lại luồng lập lịch** (`streamSSE` ở `api.ts`): luồng đứt khi chưa có event kết thúc và có header `X-Job-Id` → gọi `GET /jobs/{id}/events` tối đa 2 lần, bỏ qua event đã hiện.
 - **Panel nổi** (`FloatingPanel.tsx`): thu gọn thành nút; Chat thu gọn có badge số tin mới. Cửa sổ < 1100px chỉ mở một panel (`layout.ts` `setPanel`). Timeline chỉ hiện khi có Itinerary và tự mở khi có lịch mới.
 - **Stop đang chọn** (`selected` ở `App`, kiểu `Selected` trong `place.ts`): bấm thẻ Stop → bản đồ bay tới + `PlacePopup`; bấm pin → Timeline cuộn tới thẻ, viền vàng. Nút "Báo đóng cửa" / "Đổi chỗ khác" chỉ hiện trên Stop đang chọn. Itinerary đổi → bỏ chọn.
 - **PlacePopup**: ảnh (`photo_url`, chưa có thì ô màu + icon theo kind — `PlaceThumb`), loại, giá, trong nhà/ngoài trời, giờ mở hôm đó (`openToday`), mô tả, nút Ghim. Itinerary lưu trước 2026-09-30 không có `open_hours`/`description` → popup ẩn hai dòng đó.

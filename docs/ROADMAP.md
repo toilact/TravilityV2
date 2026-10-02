@@ -1,11 +1,11 @@
 # Travility — Roadmap
 
-Cập nhật: **2026-10-02** (Goong Matrix #7, #39; thêm lát scale hệ phân tán + mô hình mưa; xong scale T2 #48, T3 #49, T4 #50, T5 #51; đang làm T6 #52); kế hoạch gốc chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
+Cập nhật: **2026-10-02** (Goong Matrix #7, #39; thêm lát scale hệ phân tán + mô hình mưa; xong scale T2 #48, T3 #49, T4 #50, T5 #51, T6 #52 — kiến trúc đóng băng); kế hoạch gốc chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
 Nguồn: [PRD](PRD.md) (§5 yêu cầu, §12 lộ trình, §13 thứ tự cắt), [hiện trạng code](2026-09-25-hien-trang-app.md), GitHub Issues #2–#53.
 Bảng theo dõi trên GitHub (tự tick khi đóng issue): **issue #42** (đã ghim).
 
 Ký hiệu: `[x]` đã xong · `[ ]` chưa làm · 🟡 làm dở (ghi rõ còn thiếu gì) · ~~gạch~~ đã cắt.
-Tiến độ: đang ở **tuần lịch thứ 2** (bắt đầu 2026-09-25, 10 tuần); việc trên đường găng đã xong tới hết lát **T5** của lộ trình, đang làm **T6**.
+Tiến độ: đang ở **tuần lịch thứ 2** (bắt đầu 2026-09-25, 10 tuần); việc trên đường găng đã xong tới hết lát **T6** của lộ trình (hạ tầng đóng băng), tiếp theo là **T7**.
 
 ## Tổng quan
 
@@ -21,7 +21,7 @@ Tiến độ: đang ở **tuần lịch thứ 2** (bắt đầu 2026-09-25, 10 t
 | 8. Dữ liệu Place | 1 | 5 |
 | 9. Giọng nói, recap, PDF | 0 | 4 |
 | 10. Chất lượng & demo | 1 | 4 |
-| 11. Hệ phân tán & AI mở rộng | 4 | 6 |
+| 11. Hệ phân tán & AI mở rộng | 5 | 6 |
 
 ---
 
@@ -116,7 +116,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - ~~Inspiration Photo → Suggestion trên map — #10, #27~~ (cắt 2026-09-29, nhường chỗ §5.11)
 
 ## 10. Chất lượng & demo
-- [x] Test tự động: server 341, client 33; đã chạy E2E với Gemini thật
+- [x] Test tự động: server 362, client 39; đã chạy E2E với Gemini thật
 - [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
 - [ ] Đóng gói PyInstaller Mac .app + Windows .exe qua GitHub Actions; app tự bật server (`/health` → `docker compose up -d`) — #15 (Thành, T10)
 - [ ] Kịch bản demo + diễn tập (có một lần tắt mạng) — #29 (Thành, T10)
@@ -127,7 +127,7 @@ Spec: [scale-he-phan-tan](superpowers/specs/2026-10-01-scale-he-phan-tan-design.
 - [x] **T3** — #49 — Queue Redis Streams + worker `planner` (mỗi việc một transaction, nhịp tim, nhận lại việc sau 20 giây), SSE qua Redis, `nginx` + 2 bản `api`, rate limit theo User `PLAN_RPM`, `GET /jobs/{id}/events` ([runbook](runbook-cum.md)). Cụm 8 container dùng khoảng 570 MB RAM · *message queue, load balancing*
 - [x] **T4** — #50 — Lập lịch đa agent sau cờ `PLANNER_MODE`: 3 chuyên gia song song (thread, hoặc `planner-agent` × 3 qua stream `agent_jobs`) + agent tổng hợp; agent lỗi hoặc quá 45 giây thì về agent đơn; nhãn agent trong Chat. Golden set 8 prompt: cả hai chế độ 100% hợp lệ, `multi` tốn 15 lượt LLM so với 6, chậm hơn khoảng 4,5 giây (trung vị) và nhiều Conflict hơn → giữ `single` làm mặc định ([runbook](runbook-cum.md)). Cụm 11 container dùng khoảng 850 MB RAM · *AI, distributed*
 - [x] **T5** — #51 — Service `places` (tìm vector, Place tương tự, km Goong) đọc bản sao `pg-catalog-replica`, bản sao chết thì đọc node chính; Trip chia 2 shard theo `user_id % 2`, shard chết chỉ User của shard đó nhận 503; `places` chết thì Trip cũ vẫn mở được; `seed_users` ([runbook](runbook-cum.md)). Cụm 15 container dùng khoảng 1.065 MB RAM · *microservice, replication, sharding*
-- [ ] **T6** — #52 — Trang "Hệ thống", load test, chế độ chỉ đọc khi node chính chết, runbook tắt node; **đóng băng kiến trúc** · *CAP, bằng chứng*
+- [x] **T6** — #52 — Trang "Hệ thống" (🖥 trên rail, `GET /system/status`: node một bản được dò, `api` / `planner` báo nhịp tim qua Redis); `pg-catalog` chính chết thì đăng nhập đọc bản sao, đăng ký 503, cụm vẫn khởi động; client nối lại luồng lập lịch bằng `job_id` khi một bản `api` chết; `scripts.loadtest` và `scripts/smoke_cluster.sh` ([runbook](runbook-cum.md) có bảng trình diễn và số đo: lập lịch 8,5–11,6 giây khi cache tắt, khoảng 0,5 giây khi trúng cache; 2 bản `api` không nhanh hơn 1 bản trên một laptop). **Kiến trúc đóng băng từ 2026-10-02** · *CAP, bằng chứng*
 - [ ] **T7** — #53 — Mô hình dự đoán mưa cho Trip xa hơn 16 ngày, kèm giải thích · *AI tự train*
 
 ---
@@ -143,7 +143,7 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 | T2 | **Scale:** Redis + `llm-gateway` (#48, gộp #14) | ✅ |
 | T3 | **Scale:** queue + `planner` + `nginx` + rate limit (#49) ✅; kiểm mốc dữ liệu 15/10 | ⏳ |
 | T4 | UI mới (#2, #16, #4) ✅; #39 ✅ · **Scale:** đa agent (#50) ✅ | ✅ |
-| T5–T6 | Lát C mưa + trễ (#32) ✅; Goong Matrix (#7) ✅ · **Scale:** `places` + bản sao + shard (#51) ✅, trang Hệ thống + load test + đóng băng (#52) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
+| T5–T6 | Lát C mưa + trễ (#32) ✅; Goong Matrix (#7) ✅ · **Scale:** `places` + bản sao + shard (#51) ✅, trang Hệ thống + load test + đóng băng (#52) ✅ · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
 | T7 | Mô hình dự đoán mưa (#53) · Nhật giọng nói (#8, #9), bảng chi phí (#40) | ⏳ |
 | T8 | Nợ kỹ thuật (#37) + Tag chỗ ở + đổi Stay (#26, cắt đầu tiên nếu trễ); PDF (#11); recap (#28); ranker (#35) | ⏳ |
 | T9 | Chuyển OpenAI, golden set (#6), lát F (#36) | ⏳ |
@@ -152,6 +152,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14), T3 (#49) và T4 (#50) xong 2026-10-01. ✅ T5 (#51) xong 2026-10-01. Đang làm: lát scale T6 (#52, trang Hệ thống + load test + chế độ chỉ đọc + client nối lại bằng `job_id`) — [plan](superpowers/plans/2026-10-02-scale-t6-he-thong.md); #37 và #26 dời sang T8.
+1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14), T3 (#49) và T4 (#50) xong 2026-10-01. ✅ T5 (#51) xong 2026-10-01. ✅ T6 (#52) xong 2026-10-02 ([plan](superpowers/plans/2026-10-02-scale-t6-he-thong.md)); kiến trúc đóng băng. Tiếp: mô hình mưa T7 (#53) — lên plan khi bắt đầu; #37 và #26 dời sang T8.
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
 3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.
