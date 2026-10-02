@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 import psycopg
+from fastapi import HTTPException
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
@@ -11,6 +12,8 @@ logger = logging.getLogger(__name__)
 CATALOG_SCHEMA = Path(__file__).with_name("schema_catalog.sql")  # users, destinations, places
 SHARD_SCHEMA = Path(__file__).with_name("schema_shard.sql")  # trips, itineraries, proposals, messages
 SHARD_DOWN = "Dữ liệu chuyến đi tạm không truy cập được, bạn thử lại sau nhé."
+READ_ONLY = "Hệ thống đang ở chế độ chỉ đọc, tạm chưa đăng ký được. Bạn thử lại sau nhé."
+CATALOG_DOWN = "Hệ thống tài khoản tạm không truy cập được, bạn thử lại sau nhé."
 CONNECT_TIMEOUT_S = 2  # node chết phải lộ ra nhanh để còn chuyển sang node khác (spec scale §10)
 
 
@@ -67,11 +70,17 @@ def shard_conn(user_id: int) -> psycopg.Connection:
 def init_schemas() -> None:
     """Lúc khởi động: áp schema chung lên node chính và schema Trip lên từng shard.
 
-    Một shard chết không chặn khởi động: User của các shard còn sống vẫn phải dùng được (spec scale §10).
+    Trong cụm, node chết không chặn khởi động: shard chết thì User của shard kia vẫn dùng được, node chính của
+    database chung chết thì chỉ không đăng ký được (spec scale §10). Chế độ một database thì vẫn phải có database.
     """
     urls = shard_urls()
-    with connect() as conn:
-        apply_schema(conn, shard=not urls)
+    try:
+        with connect() as conn:
+            apply_schema(conn, shard=not urls)
+    except psycopg.OperationalError:
+        if not urls:
+            raise
+        logger.warning("pg-catalog không kết nối được lúc khởi động: dữ liệu chung ở chế độ chỉ đọc")
     for i, url in enumerate(urls):
         try:
             with _open(url) as conn:
@@ -81,7 +90,20 @@ def init_schemas() -> None:
 
 
 def get_conn():
-    conn = connect()
+    """Kết nối database chung cho handler tài khoản.
+
+    Node chính chết → bản sao: đăng nhập vẫn đọc được, lệnh ghi bị Postgres từ chối (spec §10, ADR-0008).
+    Cả hai chết → 503.
+    """
+    try:
+        conn = connect()
+    except psycopg.OperationalError:
+        try:
+            if not settings.catalog_replica_url:
+                raise
+            conn = _open(settings.catalog_replica_url)
+        except psycopg.OperationalError:
+            raise HTTPException(503, CATALOG_DOWN) from None
     try:
         yield conn
     finally:

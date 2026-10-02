@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, searchLine, signed, toAnswers, tripLabel,
-  viewingOld, vnd,
-  type AgentEvent, type Day, type Itinerary, type Place, type ProposalOption,
+  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, searchLine, signed, streamTrip, tiers,
+  toAnswers, tripLabel, viewingOld, vnd,
+  type AgentEvent, type Day, type Itinerary, type Place, type ProposalOption, type SystemNode,
 } from './api'
 
 describe('toAnswers', () => {
@@ -132,5 +132,88 @@ describe('searchLine', () => {
   it('agent đơn hoặc agent lạ thì giữ dòng cũ', () => {
     expect(searchLine({ query: 'cafe', places: [1] })).toBe('Đang tìm: cafe (1 kết quả)')
     expect(searchLine({ query: 'cafe', places: [1], agent: 'la' })).toBe('Đang tìm: cafe (1 kết quả)')
+  })
+})
+
+describe('tiers', () => {
+  const node = (name: string, role: string): SystemNode => ({ name, role, state: 'up' })
+  it('xếp node theo tầng từ cổng vào xuống dữ liệu, bỏ tầng trống', () => {
+    const got = tiers([node('pg-shard-1', 'pg-shard'), node('api a', 'api'), node('pg-catalog', 'pg-catalog'),
+      node('planner-agent x', 'planner-agent'), node('planner p', 'planner'), node('pg-shard-0', 'pg-shard')])
+    expect(got.map((t) => [t.label, t.nodes.map((n) => n.name)])).toEqual([
+      ['API', ['api a']],
+      ['Lập lịch', ['planner p', 'planner-agent x']],
+      ['Dữ liệu', ['pg-catalog', 'pg-shard-1', 'pg-shard-0']],
+    ])
+  })
+  it('role lạ không làm mất node', () => {
+    expect(tiers([node('la', 'moi')])).toEqual([{ label: 'Khác', nodes: [node('la', 'moi')] }])
+  })
+})
+
+describe('streamSSE nối lại bằng job_id', () => {
+  const A = { type: 'thinking', text: 'Đang đọc yêu cầu…' }
+  const B = { type: 'tool_call', name: 'search_places', query: 'cafe', places: [] }
+  const END = { type: 'answer', text: 'xong' }
+
+  /** Phản hồi SSE giả: phát `events` rồi đóng (cut = đứt mạng: lần đọc sau ném lỗi). */
+  function sse(events: object[], opts: { jobId?: string; cut?: boolean } = {}) {
+    const chunk = new TextEncoder().encode(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''))
+    let sent = false
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (!sent) { sent = true; c.enqueue(chunk); return }
+        if (opts.cut) c.error(new Error('đứt mạng')); else c.close()
+      },
+    })
+    return new Response(body, { headers: opts.jobId ? { 'X-Job-Id': opts.jobId } : {} })
+  }
+
+  async function run(responses: (Response | Error)[]) {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn(async (_url: string) => {
+      const r = responses.shift()!
+      if (r instanceof Error) throw r
+      return r
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const got: AgentEvent[] = []
+    const done = streamTrip('tok', 'Đà Lạt 1 ngày', null, (e) => got.push(e))
+    await vi.runAllTimersAsync()
+    await done
+    return { got, urls: fetchMock.mock.calls.map((c) => String(c[0])) }
+  }
+
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it('luồng đứt giữa chừng → đọc tiếp từ /jobs/{id}/events, không phát trùng event đã nhận', async () => {
+    const { got, urls } = await run([sse([A, B], { jobId: 'j1', cut: true }), sse([A, B, END])])
+    expect(got).toEqual([A, B, END])
+    expect(urls[1]).toMatch(/\/jobs\/j1\/events$/)
+  })
+
+  it('luồng đóng sớm không báo lỗi cũng được nối lại; lần nối hỏng thì thử lần nữa', async () => {
+    const { got, urls } = await run([sse([A], { jobId: 'j1' }), new TypeError('fetch failed'), sse([A, END])])
+    expect(got).toEqual([A, END])
+    expect(urls).toHaveLength(3)
+  })
+
+  it('hết 2 lần nối lại vẫn chưa xong → một bong bóng lỗi', async () => {
+    const { got, urls } = await run([sse([A], { jobId: 'j1' }), sse([A]), sse([A])])
+    expect(got).toEqual([A, { type: 'error', message: 'Kết nối bị ngắt giữa chừng, bạn thử lại nhé.' }])
+    expect(urls).toHaveLength(3)
+  })
+
+  it('lỗi trong lúc xử lý event không bị nuốt như lỗi mạng: ném ra để App báo, không nối lại', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sse([A, END], { jobId: 'j1' })))
+    const boom = () => { throw new Error('vẽ lịch hỏng') }
+    await expect(streamTrip('tok', 'Đà Lạt 1 ngày', null, boom)).rejects.toThrow('vẽ lịch hỏng')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('không có X-Job-Id (chế độ một tiến trình) → báo lỗi như cũ, không gọi thêm', async () => {
+    const { got, urls } = await run([sse([A])])
+    expect(got).toEqual([A, { type: 'error', message: 'Kết nối bị ngắt giữa chừng, bạn thử lại nhé.' }])
+    expect(urls).toHaveLength(1)
   })
 })

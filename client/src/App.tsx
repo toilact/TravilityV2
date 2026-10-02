@@ -13,6 +13,7 @@ import Login from './components/Login'
 import MapView from './components/MapView'
 import ProposalPanel from './components/ProposalPanel'
 import Rail from './components/Rail'
+import SystemPage from './components/SystemPage'
 import Timeline from './components/Timeline'
 import { NARROW, setPanel, type Panels } from './layout'
 import { type Selected } from './place'
@@ -50,6 +51,7 @@ export default function App() {
   const [narrow, setNarrow] = useState(() => matchMedia(NARROW).matches)
   const [panels, setPanels] = useState<Panels>(() => ({ chat: true, timeline: !matchMedia(NARROW).matches }))
   const [unread, setUnread] = useState(0)  // tin mới đến lúc Chat đang thu gọn (badge)
+  const [system, setSystem] = useState(false)  // trang "Hệ thống" đang mở
   const chatOpen = useRef(true)  // ref: `add` trong closure của stream cũ vẫn đọc được trạng thái mới
   chatOpen.current = panels.chat
 
@@ -167,7 +169,7 @@ export default function App() {
     if (r) setPins(r.pinned_place_ids)
   }
 
-  const logout = () => { saveToken(null); setToken(null); newTrip(); setTrips([]) }
+  const logout = () => { saveToken(null); setToken(null); newTrip(); setTrips([]); setSystem(false) }
 
   const disrupt = async (d: DisruptionReq) => {
     const p = await call(() => reportDisruption(token!, tripId!, version!, d))
@@ -207,7 +209,8 @@ export default function App() {
         selected={selected} onSelect={setSelected} padding={{ left, right }} pins={pins}
         onPin={tripId != null && version != null && !proposal && !busy && !viewingOld(version, latest) ? pin : undefined} />
       <Rail busy={busy} trips={trips} currentId={tripId} onNewTrip={tripId != null ? newTrip : undefined}
-        onOpenTrip={(id) => openTrip(id)} onLogout={logout} />
+        onOpenTrip={(id) => openTrip(id)} onLogout={logout}
+        systemOpen={system} onSystem={() => setSystem((v) => !v)} />
       <FloatingPanel side="left" title={current ? tripLabel(current) : 'Chuyến mới'}
         subtitle={budget != null ? `Ngân sách ${vnd(budget)}` : 'Trợ lý lập lịch trình'}
         open={panels.chat} onToggle={() => openPanel('chat', !panels.chat)}
@@ -232,6 +235,7 @@ export default function App() {
           </Timeline>
         </FloatingPanel>
       )}
+      {system && <SystemPage token={token} onClose={() => setSystem(false)} />}
     </div>
   )
 }

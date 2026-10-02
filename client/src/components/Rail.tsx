@@ -3,9 +3,9 @@ import { tripLabel, type TripSummary } from '../api'
 
 const BTN = 'grid size-11 place-items-center rounded-xl text-xl text-white/75 hover:bg-white/10 hover:text-white disabled:opacity-40'
 
-export default function Rail({ busy, trips, currentId, onNewTrip, onOpenTrip, onLogout }: {
-  busy: boolean; trips: TripSummary[]; currentId: number | null
-  onNewTrip?: () => void; onOpenTrip: (id: number) => void; onLogout: () => void
+export default function Rail({ busy, trips, currentId, systemOpen, onNewTrip, onOpenTrip, onSystem, onLogout }: {
+  busy: boolean; trips: TripSummary[]; currentId: number | null; systemOpen: boolean
+  onNewTrip?: () => void; onOpenTrip: (id: number) => void; onSystem: () => void; onLogout: () => void
 }) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
@@ -27,6 +27,8 @@ export default function Rail({ busy, trips, currentId, onNewTrip, onOpenTrip, on
         <button type="button" className={`${BTN} ${open ? 'bg-white/15 text-white' : ''}`} aria-label="Chuyến đi của tôi"
           title="Chuyến đi của tôi" aria-expanded={open} onClick={() => setOpen((o) => !o)}>🗂</button>
         <div className="flex-1" />
+        <button type="button" className={`${BTN} ${systemOpen ? 'bg-white/15 text-white' : ''}`} aria-label="Hệ thống"
+          title="Hệ thống" aria-pressed={systemOpen} onClick={onSystem}>🖥</button>
         <button type="button" className={BTN} aria-label="Đăng xuất" title="Đăng xuất" onClick={onLogout}>⎋</button>
       </nav>
       {open && (

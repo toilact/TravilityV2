@@ -1,8 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db import get_conn
+from app.config import settings
+from app.db import CATALOG_DOWN, READ_ONLY, get_conn
 from app.main import app
+from tests.conftest import TEST_URL
 
 
 @pytest.fixture
@@ -48,3 +50,28 @@ def test_protected_route_needs_token(client):
     token = register(client).json()["token"]
     assert client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     assert client.get("/auth/me", headers={"Authorization": "Bearer rac"}).status_code == 401
+
+
+DEAD = "postgresql://travility:travility@127.0.0.1:1/travility"  # không ai nghe cổng 1
+REPLICA = TEST_URL + "?options=-c%20default_transaction_read_only%3Don"  # như hot standby: lệnh ghi lỗi
+LOGIN = {"email": "an@example.com", "password": "matkhau123"}
+
+
+def test_primary_down_login_reads_replica_and_register_is_refused(conn, monkeypatch):
+    monkeypatch.setattr(settings, "database_url", TEST_URL)
+    api = TestClient(app)  # không override get_conn: đi đường thật
+    assert register(api).status_code == 201
+    monkeypatch.setattr(settings, "database_url", DEAD)
+    monkeypatch.setattr(settings, "catalog_replica_url", REPLICA)
+    assert api.post("/auth/login", json=LOGIN).status_code == 200
+    r = register(api, email="moi@example.com")
+    assert r.status_code == 503 and r.json()["detail"] == READ_ONLY
+    monkeypatch.setattr(settings, "catalog_replica_url", DEAD)
+    r = api.post("/auth/login", json=LOGIN)
+    assert r.status_code == 503 and r.json()["detail"] == CATALOG_DOWN
+
+
+def test_database_down_in_simple_mode_is_503(monkeypatch):
+    monkeypatch.setattr(settings, "database_url", DEAD)
+    r = TestClient(app).post("/auth/login", json=LOGIN)
+    assert r.status_code == 503 and r.json()["detail"] == CATALOG_DOWN
