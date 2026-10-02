@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import auth, nodes, proposals, trips, versions
+from app import auth, nodes, proposals, system, trips, versions
 from app.config import settings
 from app.db import init_schemas
 from app.places_client import PLACES_DOWN, PlacesDown, list_destinations
@@ -34,6 +34,7 @@ app.include_router(auth.router)
 app.include_router(trips.router)
 app.include_router(proposals.router)
 app.include_router(versions.router)
+app.include_router(system.router)
 
 
 @app.exception_handler(PlacesDown)
