@@ -108,22 +108,21 @@ async function readEvents(r: Response, skip: number, onEvent: (e: AgentEvent) =>
   let buf = ''
   let count = 0
   let finished = false
-  try {
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buf += value
-      const { events, rest } = parseSSE(buf)
-      buf = rest
-      for (const e of events) {
-        count += 1
-        if (count <= skip) continue
-        const ev = e as AgentEvent
-        if (isFinal(ev)) finished = true
-        onEvent(ev)
-      }
+  for (;;) {
+    // Chỉ lỗi đọc mạng mới coi như luồng đóng sớm; lỗi lúc xử lý event phải ném ra để App báo.
+    const chunk = await reader.read().catch(() => null)
+    if (!chunk || chunk.done) break
+    buf += chunk.value
+    const { events, rest } = parseSSE(buf)
+    buf = rest
+    for (const e of events) {
+      count += 1
+      if (count <= skip) continue
+      const ev = e as AgentEvent
+      if (isFinal(ev)) finished = true
+      onEvent(ev)
     }
-  } catch { /* mạng đứt giữa chừng: xử lý như luồng đóng sớm */ }
+  }
   return { count, finished }
 }
 

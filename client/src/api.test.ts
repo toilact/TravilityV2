@@ -204,6 +204,13 @@ describe('streamSSE nối lại bằng job_id', () => {
     expect(urls).toHaveLength(3)
   })
 
+  it('lỗi trong lúc xử lý event không bị nuốt như lỗi mạng: ném ra để App báo, không nối lại', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sse([A, END], { jobId: 'j1' })))
+    const boom = () => { throw new Error('vẽ lịch hỏng') }
+    await expect(streamTrip('tok', 'Đà Lạt 1 ngày', null, boom)).rejects.toThrow('vẽ lịch hỏng')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('không có X-Job-Id (chế độ một tiến trình) → báo lỗi như cũ, không gọi thêm', async () => {
     const { got, urls } = await run([sse([A])])
     expect(got).toEqual([A, { type: 'error', message: 'Kết nối bị ngắt giữa chừng, bạn thử lại nhé.' }])
