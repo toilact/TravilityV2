@@ -85,6 +85,7 @@ services:
     env_file: ./server/.env
     environment: &app_env
       DATABASE_URL: postgresql://travility:travility@pg-catalog:5432/travility
+      CATALOG_REPLICA_URL: postgresql://travility:travility@pg-catalog-replica:5432/travility  # đăng nhập khi node chính chết
       SHARD_URLS: postgresql://travility:travility@pg-shard-0:5432/travility,postgresql://travility:travility@pg-shard-1:5432/travility
       PLACES_URL: http://places:8000
       REDIS_URL: redis://redis:6379/0

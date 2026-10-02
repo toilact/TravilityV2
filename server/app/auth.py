@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.config import settings
-from app.db import SHARD_DOWN, get_conn, shard_conn
+from app.db import READ_ONLY, SHARD_DOWN, get_conn, shard_conn
 
 router = APIRouter(prefix="/auth")
 bearer = HTTPBearer(auto_error=False)
@@ -60,6 +60,8 @@ def register(body: Credentials, conn=Depends(get_conn)):
                            (body.email.lower(), pw_hash)).fetchone()
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409, "Email đã được đăng ký") from None
+    except psycopg.errors.ReadOnlySqlTransaction:  # get_conn đã lùi về bản sao: node chính chết
+        raise HTTPException(503, READ_ONLY) from None
     return {"token": make_token(row["id"])}
 
 
