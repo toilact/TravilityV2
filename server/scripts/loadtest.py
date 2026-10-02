@@ -2,7 +2,7 @@
 
 Chạy từ máy ngoài, trỏ vào nginx; bật cụm với PLAN_RPM=0 để không bị giới hạn theo User.
 
-  uv run python -m scripts.loadtest --label "2 api" --users 20 --rounds 10
+  uv run python -m scripts.loadtest --label "2 api" --users 20 --rounds 25 --concurrency 50
   uv run python -m scripts.loadtest --label "cache bật (replay)" --users 20 --plans 20 --rounds 0
   uv run python -m scripts.loadtest --label "cache tắt" --users 2 --plans 2 --sequential --rounds 0
 
@@ -68,18 +68,21 @@ async def plan(http: httpx.AsyncClient, h: dict, message: str) -> bool:
     return last == "itinerary"
 
 
-async def _time(call) -> float | None:
-    t0 = time.perf_counter()
-    try:
-        ok = await call
-    except httpx.HTTPError:
-        return None
-    return time.perf_counter() - t0 if ok else None
+async def _time(call, gate: asyncio.Semaphore) -> float | None:
+    async with gate:  # đồng hồ chỉ chạy khi tới lượt: không tính thời gian xếp hàng ở phía script
+        t0 = time.perf_counter()
+        try:
+            ok = await call
+        except httpx.HTTPError:
+            return None
+        return time.perf_counter() - t0 if ok else None
 
 
-async def measure(calls: list, sequential: bool = False) -> dict:
+async def measure(calls: list, concurrency: int = 50) -> dict:
+    """Chạy mọi lượt, nhiều nhất `concurrency` lượt cùng lúc (1 = lần lượt), rồi tóm tắt."""
+    gate = asyncio.Semaphore(concurrency)
     t0 = time.perf_counter()
-    got = [await _time(c) for c in calls] if sequential else await asyncio.gather(*map(_time, calls))
+    got = await asyncio.gather(*(_time(c, gate) for c in calls))
     done = [g for g in got if g is not None]
     return summarize(done, len(got) - len(done), time.perf_counter() - t0)
 
@@ -90,14 +93,15 @@ async def run(args) -> None:
         print(HEADER)
         if args.plans:
             calls = [plan(http, heads[i % len(heads)], args.message) for i in range(args.plans)]
-            print(row(args.label, "lập lịch", await measure(calls, args.sequential)), flush=True)
+            print(row(args.label, "lập lịch", await measure(calls, 1 if args.sequential else args.concurrency)),
+                  flush=True)
         if args.rounds:
             calls = [get_ok(http, "/trips", h) for h in heads for _ in range(args.rounds)]
-            print(row(args.label, "danh sách Trip", await measure(calls)), flush=True)
+            print(row(args.label, "danh sách Trip", await measure(calls, args.concurrency)), flush=True)
             mine = [(h, (await http.get("/trips", headers=h)).json()) for h in heads]
             calls = [get_ok(http, f"/trips/{ts[0]['id']}", h) for h, ts in mine if ts for _ in range(args.rounds)]
             if calls:
-                print(row(args.label, "mở Trip", await measure(calls)), flush=True)
+                print(row(args.label, "mở Trip", await measure(calls, args.concurrency)), flush=True)
 
 
 def main() -> None:
@@ -107,6 +111,8 @@ def main() -> None:
     ap.add_argument("--users", type=int, default=20)
     ap.add_argument("--rounds", type=int, default=10, help="số lượt đọc mỗi User cho mỗi kịch bản đọc; 0 = bỏ")
     ap.add_argument("--plans", type=int, default=0, help="số lượt lập lịch; 0 = bỏ")
+    ap.add_argument("--concurrency", type=int, default=50,
+                    help="số lượt chạy cùng lúc; nginx mặc định chỉ giữ được khoảng 250 kết nối proxy")
     ap.add_argument("--sequential", action="store_true", help="lập lịch lần lượt (đo cache tắt với provider thật)")
     ap.add_argument("--message", default=MESSAGE)
     asyncio.run(run(ap.parse_args()))

@@ -1,4 +1,6 @@
-from scripts.loadtest import percentile, row, summarize
+import asyncio
+
+from scripts.loadtest import measure, percentile, row, summarize
 
 
 def test_percentile_is_nearest_rank():
@@ -18,3 +20,19 @@ def test_summary_counts_errors_and_rate_of_successes():
 def test_row_is_a_markdown_table_line():
     s = summarize([0.1], errors=0, wall=1.0)
     assert row("2 api", "mở Trip", s) == "| 2 api | mở Trip | 1 | 0 | 100 | 100 | 1.0 |"
+
+
+def test_measure_never_runs_more_than_the_concurrency_limit():
+    live, peak = 0, 0
+
+    async def call(ok=True):
+        nonlocal live, peak
+        live += 1
+        peak = max(peak, live)
+        await asyncio.sleep(0.01)
+        live -= 1
+        return ok
+
+    s = asyncio.run(measure([call() for _ in range(9)] + [call(False)], concurrency=3))
+    assert peak == 3
+    assert (s["n"], s["errors"]) == (10, 1)
