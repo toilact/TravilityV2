@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import auth, proposals, trips, versions
+from app import auth, nodes, proposals, trips, versions
 from app.config import settings
 from app.db import init_schemas
 from app.places_client import PLACES_DOWN, PlacesDown, list_destinations
@@ -17,6 +17,7 @@ async def lifespan(_: FastAPI):
     if settings.jwt_secret in _DEFAULT_JWT_SECRETS:
         raise RuntimeError("JWT_SECRET chưa được đặt — sửa server/.env")
     init_schemas()
+    nodes.start("api")
     if settings.places_url:  # nạp sẵn Destination: places chết sau đó thì danh sách và mở Trip vẫn chạy (spec S27)
         try:
             list_destinations(None)

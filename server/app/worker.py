@@ -13,7 +13,7 @@ import time
 import psycopg
 from redis.exceptions import RedisError, ResponseError
 
-from app import jobs, kv, multi, trips
+from app import jobs, kv, multi, nodes, trips
 from app.db import SHARD_DOWN, connect, init_schemas, shard_conn, shard_urls
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,7 @@ def main() -> None:
     if c is None:
         raise SystemExit("planner cần REDIS_URL")
     init_schemas()
+    nodes.start("planner-agent" if agent else "planner")
     logger.info("planner %s sẵn sàng (%s)", me, "agent" if agent else "điều phối")
     conn = None
     while True:
