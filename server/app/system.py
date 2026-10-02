@@ -19,7 +19,8 @@ from app.config import settings
 router = APIRouter()
 PROBE_TIMEOUT_S = 2
 # Bản sao đã phát lại hết WAL nhận được → trễ 0; nếu chỉ lấy now() - mốc phát lại thì node chính rảnh sẽ bị báo trễ.
-LAG_SQL = """SELECT CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0
+# `<=` chứ không phải `=`: bản sao vừa khởi động lại phát lại WAL có sẵn trên đĩa nên mốc nhận nhỏ hơn mốc phát lại.
+LAG_SQL = """SELECT CASE WHEN pg_last_wal_receive_lsn() <= pg_last_wal_replay_lsn() THEN 0
                          ELSE EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()) * 1000 END AS ms"""
 STAT_KEYS = {"cache_hit": "gw:stat:hit", "cache_miss": "gw:stat:miss", "provider_call": "gw:stat:provider_call",
              "provider_wait": "gw:stat:wait", "provider_fallback": "gw:stat:fallback", "rate_limited": "rl:blocked"}
