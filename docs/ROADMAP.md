@@ -1,11 +1,11 @@
 # Travility — Roadmap
 
-Cập nhật: **2026-10-01** (Goong Matrix #7, #39; thêm lát scale hệ phân tán + mô hình mưa; xong scale T2 #48, T3 #49, T4 #50); kế hoạch gốc chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
+Cập nhật: **2026-10-02** (Goong Matrix #7, #39; thêm lát scale hệ phân tán + mô hình mưa; xong scale T2 #48, T3 #49, T4 #50, T5 #51; đang làm T6 #52); kế hoạch gốc chốt 2026-09-30 sau buổi chốt kế hoạch T2→T10 (Thành + AI gánh đường găng; việc của thành viên khác là việc thêm, cắt được).
 Nguồn: [PRD](PRD.md) (§5 yêu cầu, §12 lộ trình, §13 thứ tự cắt), [hiện trạng code](2026-09-25-hien-trang-app.md), GitHub Issues #2–#53.
 Bảng theo dõi trên GitHub (tự tick khi đóng issue): **issue #42** (đã ghim).
 
 Ký hiệu: `[x]` đã xong · `[ ]` chưa làm · 🟡 làm dở (ghi rõ còn thiếu gì) · ~~gạch~~ đã cắt.
-Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần).
+Tiến độ: đang ở **tuần lịch thứ 2** (bắt đầu 2026-09-25, 10 tuần); việc trên đường găng đã xong tới hết lát **T5** của lộ trình, đang làm **T6**.
 
 ## Tổng quan
 
@@ -21,7 +21,7 @@ Tiến độ tuần: đang ở **T1 → T2** (bắt đầu 2026-09-25, 10 tuần
 | 8. Dữ liệu Place | 1 | 5 |
 | 9. Giọng nói, recap, PDF | 0 | 4 |
 | 10. Chất lượng & demo | 1 | 4 |
-| 11. Hệ phân tán & AI mở rộng | 1 | 6 |
+| 11. Hệ phân tán & AI mở rộng | 4 | 6 |
 
 ---
 
@@ -116,7 +116,7 @@ Spec: [ca-nhan-hoa-trip](superpowers/specs/2026-09-29-ca-nhan-hoa-trip-design.md
 - ~~Inspiration Photo → Suggestion trên map — #10, #27~~ (cắt 2026-09-29, nhường chỗ §5.11)
 
 ## 10. Chất lượng & demo
-- [x] Test tự động: server 316, client 33; đã chạy E2E với Gemini thật
+- [x] Test tự động: server 341, client 33; đã chạy E2E với Gemini thật
 - [ ] Golden set 15 prompt × 2 provider, mục tiêu ≥ 90% Itinerary hợp lệ — #6 (Thành)
 - [ ] Đóng gói PyInstaller Mac .app + Windows .exe qua GitHub Actions; app tự bật server (`/health` → `docker compose up -d`) — #15 (Thành, T10)
 - [ ] Kịch bản demo + diễn tập (có một lần tắt mạng) — #29 (Thành, T10)
@@ -143,7 +143,7 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 | T2 | **Scale:** Redis + `llm-gateway` (#48, gộp #14) | ✅ |
 | T3 | **Scale:** queue + `planner` + `nginx` + rate limit (#49) ✅; kiểm mốc dữ liệu 15/10 | ⏳ |
 | T4 | UI mới (#2, #16, #4) ✅; #39 ✅ · **Scale:** đa agent (#50) ✅ | ✅ |
-| T5–T6 | Lát C mưa + trễ (#32) ✅; Goong Matrix (#7) ✅ · **Scale:** `places` + bản sao + shard (#51), trang Hệ thống + load test + đóng băng (#52) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
+| T5–T6 | Lát C mưa + trễ (#32) ✅; Goong Matrix (#7) ✅ · **Scale:** `places` + bản sao + shard (#51) ✅, trang Hệ thống + load test + đóng băng (#52) · Quân E1 (#34) · Tùng lát D (#33) | ⏳ |
 | T7 | Mô hình dự đoán mưa (#53) · Nhật giọng nói (#8, #9), bảng chi phí (#40) | ⏳ |
 | T8 | Nợ kỹ thuật (#37) + Tag chỗ ở + đổi Stay (#26, cắt đầu tiên nếu trễ); PDF (#11); recap (#28); ranker (#35) | ⏳ |
 | T9 | Chuyển OpenAI, golden set (#6), lát F (#36) | ⏳ |
@@ -152,6 +152,6 @@ Máy demo: Mac của Thành. Windows: build .exe qua CI + smoke test một lần
 Đã cắt 2026-09-30: #12, #13, #18, #23, #38, #20.
 
 ## Việc cần làm ngay
-1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14), T3 (#49) và T4 (#50) xong 2026-10-01. ✅ T5 (#51) xong 2026-10-01. Tiếp: lát scale T6 (#52, trang Hệ thống + load test + chế độ chỉ đọc) — lên plan khi bắt đầu tuần; #37 và #26 dời sang T8.
+1. ✅ Revision đầy đủ (#17, #25, #24), ✅ UI mới (#2, #16, #4), ✅ lát C mưa + trễ (#32) xong 2026-09-30; ✅ #39, ✅ Goong Matrix (#7) xong 2026-10-01. ✅ scale T2 (#48, gộp #14), T3 (#49) và T4 (#50) xong 2026-10-01. ✅ T5 (#51) xong 2026-10-01. Đang làm: lát scale T6 (#52, trang Hệ thống + load test + chế độ chỉ đọc + client nối lại bằng `job_id`) — [plan](superpowers/plans/2026-10-02-scale-t6-he-thong.md); #37 và #26 dời sang T8.
 2. #19 — Quân đưa Đà Lạt lên 150 Place trước 15/10 (kèm `photo_url` để popup có ảnh thật).
 3. Nhật: bảng chi phí (#40), giọng nói (#8/#9) — cắm vào panel Timeline / ô chat hiện có.

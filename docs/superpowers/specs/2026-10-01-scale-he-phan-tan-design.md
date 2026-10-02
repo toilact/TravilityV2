@@ -49,6 +49,11 @@ Không làm: triển khai cloud, tự động chuyển node chính (failover), t
 | S27 | `places` chết: `api` dùng bản Destination đọc được gần nhất trong tiến trình | Danh sách Trip và mở Trip cũ vẫn chạy; khớp ADR-0008 (Destination ưu tiên sẵn sàng) |
 | S28 | `seed_users` chỉ tạo User | Trip mẫu sinh bằng luồng thật khi ghi kịch bản demo; không có đường ghi Trip thứ hai |
 | S29 | Worker mở kết nối shard theo từng việc; shard chết → event `error`, không thử lại. Shard chết lúc khởi động không chặn `api` / `planner` | Một shard chết không được kéo theo User của shard kia |
+| S30 | T6 gồm #52 cộng ba món nợ: `api` / `planner` khởi động và đăng nhập được khi `pg-catalog` chính chết, client nối lại bằng `job_id`, `scripts/smoke_cluster.sh` | Đóng băng kiến trúc mà còn việc hạ tầng treo thì không phải đóng băng |
+| S31 | Phát hiện node: node một bản (4 Postgres, `redis`, `llm-gateway`, `places`) do bản `api` đang trả lời dò song song; tiến trình nhiều bản (`api`, `planner`, `planner-agent`) ghi nhịp tim vào sorted set `nodes` trong Redis mỗi 2 giây, im quá 6 giây là chết, quá 10 phút thì bỏ khỏi sơ đồ. Redis chết → chỉ biết chắc bản `api` đang trả lời | Một bản `api` không hỏi thẳng được bản kia, worker không mở cổng; không gắn `docker.sock` vào `api` |
+| S32 | Trang "Hệ thống" là lớp phủ toàn màn hình, node xếp theo tầng như sơ đồ §4, dựng bằng CSS grid, không vẽ đường nối | Nhìn ra kiến trúc; số bản `api` / `planner` đổi không phải tính lại toạ độ |
+| S33 | Bảng "cache tắt vs bật": cache tắt đo 2 lượt lập lịch tuần tự với provider thật; cache bật (`replay`) đo 20 lượt đồng thời trở lên. Bảng ghi rõ hai dòng khác cỡ mẫu | Gemini free 15 lượt chat mỗi phút, một lần lập lịch 5–8 lượt; số đo phải là số thật |
+| S34 | Client chỉ nối lại khi luồng SSE đứt giữa chừng: tối đa 2 lần qua `GET /jobs/{job_id}/events`, bỏ qua event đã nhận. Không lưu `job_id` qua lần mở lại app | Mở lại app đã tự mở Trip gần nhất và thấy lịch khi việc xong |
 
 S13 khác với kế hoạch đã duyệt ("script chuyển dữ liệu"): bỏ script chuyển, thay bằng script tạo dữ liệu mẫu.
 
@@ -298,9 +303,9 @@ Bật lại node bằng tay (`docker compose start`). Không có bầu chọn no
 
 **`GET /system/status`** (cần đăng nhập) trả: danh sách node kèm sống/chết, bản `api` vừa phục vụ (hostname), độ dài queue + số việc đang chờ + số worker, trúng/trượt cache, số lượt bị rate limit, số lượt chuyển provider, độ trễ bản sao, shard của User hiện tại, `PLANNER_MODE`. Chế độ đơn giản trả một node.
 
-**Trang trong app:** thêm một nút trên rail mở sơ đồ cụm, tự làm mới mỗi 2 giây; node chết đổi màu.
+**Trang trong app:** thêm một nút trên rail mở sơ đồ cụm dạng lớp phủ, node xếp theo tầng (S32), tự làm mới mỗi 2 giây; node chết đổi màu, node không rõ trạng thái màu xám (S31).
 
-**Load test:** `server/scripts/loadtest.py` (asyncio + httpx, không thêm công cụ). Kịch bản: đăng nhập, xem danh sách Trip, mở Trip, lập lịch với gateway ở `replay`. In bảng p50 / p95 / request mỗi giây.
+**Load test:** `server/scripts/loadtest.py` (asyncio + httpx, không thêm công cụ). Kịch bản: đăng nhập, xem danh sách Trip, mở Trip, lập lịch với gateway ở `replay`. In bảng p50 / p95 / request mỗi giây. Dòng "cache tắt" chỉ đo 2 lượt lập lịch tuần tự với provider thật (S33).
 
 | Kỹ thuật | Trình diễn |
 |---|---|
