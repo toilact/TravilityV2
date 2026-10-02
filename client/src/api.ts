@@ -99,6 +99,34 @@ export async function authRequest(path: '/auth/login' | '/auth/register', email:
   return body.token as string
 }
 
+const RECONNECTS = 2  // spec scale S34
+const RECONNECT_MS = 1000  // đủ để nginx bỏ bản api vừa chết
+
+/** Đọc một phản hồi SSE tới khi đóng hoặc đứt; bỏ qua `skip` event đầu (đã phát ở lần nối trước). */
+async function readEvents(r: Response, skip: number, onEvent: (e: AgentEvent) => void) {
+  const reader = r.body!.pipeThrough(new TextDecoderStream()).getReader()
+  let buf = ''
+  let count = 0
+  let finished = false
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += value
+      const { events, rest } = parseSSE(buf)
+      buf = rest
+      for (const e of events) {
+        count += 1
+        if (count <= skip) continue
+        const ev = e as AgentEvent
+        if (isFinal(ev)) finished = true
+        onEvent(ev)
+      }
+    }
+  } catch { /* mạng đứt giữa chừng: xử lý như luồng đóng sớm */ }
+  return { count, finished }
+}
+
 async function streamSSE(token: string, path: string, body: unknown, onEvent: (e: AgentEvent) => void) {
   const r = await fetch(API + path, {
     method: 'POST',
@@ -111,20 +139,17 @@ async function streamSSE(token: string, path: string, body: unknown, onEvent: (e
     onEvent({ type: 'error', message: typeof detail === 'string' ? detail : `Lỗi máy chủ (${r.status})` })
     return
   }
-  const reader = r.body.pipeThrough(new TextDecoderStream()).getReader()
-  let buf = ''
-  let finished = false
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += value
-    const { events, rest } = parseSSE(buf)
-    buf = rest
-    events.forEach((e) => {
-      const ev = e as AgentEvent
-      if (isFinal(ev)) finished = true
-      onEvent(ev)
-    })
+  // Có X-Job-Id = việc chạy trong planner và sống tiếp khi bản api này chết: nối lại ở bản api khác (spec §10).
+  const jobId = r.headers.get('X-Job-Id')
+  let { count: seen, finished } = await readEvents(r, 0, onEvent)
+  for (let i = 0; !finished && jobId && i < RECONNECTS; i++) {
+    await new Promise((ok) => setTimeout(ok, RECONNECT_MS))
+    const again = await fetch(`${API}/jobs/${jobId}/events`, { headers: { Authorization: `Bearer ${token}` } })
+      .catch(() => null)
+    if (!again?.ok || !again.body) continue
+    const got = await readEvents(again, seen, onEvent)
+    seen = Math.max(seen, got.count)
+    finished = got.finished
   }
   if (!finished) onEvent({ type: 'error', message: 'Kết nối bị ngắt giữa chừng, bạn thử lại nhé.' })
 }
