@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, searchLine, signed, toAnswers, tripLabel,
-  viewingOld, vnd,
-  type AgentEvent, type Day, type Itinerary, type Place, type ProposalOption,
+  clarifyAfter, confirmAfter, intentChips, isFinal, mealOf, noFeasibleText, optionPlaces, rainable, searchLine, signed, tiers, toAnswers,
+  tripLabel, viewingOld, vnd,
+  type AgentEvent, type Day, type Itinerary, type Place, type ProposalOption, type SystemNode,
 } from './api'
 
 describe('toAnswers', () => {
@@ -132,5 +132,21 @@ describe('searchLine', () => {
   it('agent đơn hoặc agent lạ thì giữ dòng cũ', () => {
     expect(searchLine({ query: 'cafe', places: [1] })).toBe('Đang tìm: cafe (1 kết quả)')
     expect(searchLine({ query: 'cafe', places: [1], agent: 'la' })).toBe('Đang tìm: cafe (1 kết quả)')
+  })
+})
+
+describe('tiers', () => {
+  const node = (name: string, role: string): SystemNode => ({ name, role, state: 'up' })
+  it('xếp node theo tầng từ cổng vào xuống dữ liệu, bỏ tầng trống', () => {
+    const got = tiers([node('pg-shard-1', 'pg-shard'), node('api a', 'api'), node('pg-catalog', 'pg-catalog'),
+      node('planner-agent x', 'planner-agent'), node('planner p', 'planner'), node('pg-shard-0', 'pg-shard')])
+    expect(got.map((t) => [t.label, t.nodes.map((n) => n.name)])).toEqual([
+      ['API', ['api a']],
+      ['Lập lịch', ['planner p', 'planner-agent x']],
+      ['Dữ liệu', ['pg-catalog', 'pg-shard-1', 'pg-shard-0']],
+    ])
+  })
+  it('role lạ không làm mất node', () => {
+    expect(tiers([node('la', 'moi')])).toEqual([{ label: 'Khác', nodes: [node('la', 'moi')] }])
   })
 })

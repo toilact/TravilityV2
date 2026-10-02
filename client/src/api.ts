@@ -218,3 +218,32 @@ export function tripLabel(t: TripSummary): string {
   const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0')
   return `${t.destination_name ?? t.spec.destination} · ${t.spec.days} ngày · ${dd}/${mm}`
 }
+
+export type NodeState = 'up' | 'down' | 'unknown'
+export type SystemNode = { name: string; role: string; state: NodeState; lag_ms?: number | null }
+export type SystemStatus = {
+  nodes: SystemNode[]; served_by: string; my_shard: number | null; planner_mode: string
+  stats: {
+    cache_hit: number; cache_miss: number; provider_call: number; provider_wait: number
+    provider_fallback: number; rate_limited: number; waiting: number; running: number
+  } | null  // null: chế độ một tiến trình, hoặc Redis chết
+}
+
+export const getSystemStatus = (token: string) => request<SystemStatus>(token, '/system/status')
+
+// Tầng của sơ đồ cụm, từ cổng vào xuống dữ liệu (spec scale §4). Role khớp server/app/system.py.
+const TIERS: [string, string[]][] = [
+  ['Cổng vào', ['nginx']],
+  ['API', ['api']],
+  ['Lập lịch', ['planner', 'planner-agent']],
+  ['Dịch vụ', ['redis', 'llm-gateway', 'places']],
+  ['Dữ liệu', ['pg-catalog', 'pg-catalog-replica', 'pg-shard']],
+]
+
+export function tiers(nodes: SystemNode[]): { label: string; nodes: SystemNode[] }[] {
+  const known = TIERS.flatMap(([, roles]) => roles)
+  const other: [string, string[]] = ['Khác', [...new Set(nodes.map((n) => n.role).filter((r) => !known.includes(r)))]]
+  return [...TIERS, other]
+    .map(([label, roles]) => ({ label, nodes: roles.flatMap((r) => nodes.filter((n) => n.role === r)) }))
+    .filter((t) => t.nodes.length > 0)
+}
