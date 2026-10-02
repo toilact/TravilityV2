@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  applyProposal, clarifyAfter, confirmAfter, optionPlace, reportDisruption, streamPlan, streamReplan, streamTrip,
+  applyProposal, clarifyAfter, confirmAfter, getMe, optionPlace, reportDisruption, streamPlan, streamReplan, streamTrip, updateMe,
   type AgentEvent, type Answers,
-  type Clarify, type ConfirmReplan, type DisruptionKind, type Itinerary, type ItineraryEvent, type Place, type Proposal,
+  type Account, type Clarify, type ConfirmReplan, type DisruptionKind, type Itinerary, type ItineraryEvent, type Place, type Proposal,
 } from './api'
 import ChatPanel, { type ChatItem } from './components/ChatPanel'
 import ClarifyCard from './components/ClarifyCard'
@@ -24,6 +24,7 @@ function saveToken(t: string | null) {
 
 export default function App() {
   const [token, setToken] = useState<string | null>(loadToken)
+  const [account, setAccount] = useState<Account | null>(null)
   const [chat, setChat] = useState<ChatItem[]>([])
   const [busy, setBusy] = useState(false)
   const [center, setCenter] = useState<[number, number]>([108.4583, 11.9404])
@@ -37,6 +38,23 @@ export default function App() {
   const [version, setVersion] = useState<number | null>(null)  // version Itinerary đang xem, gửi kèm Disruption
   const [proposal, setProposal] = useState<Proposal | null>(null)
   const [changed, setChanged] = useState<[number, number][]>([])  // Stop vừa đổi, tô viền trên Timeline
+
+  useEffect(() => {
+    if (!token) {
+      setAccount(null)
+      return
+    }
+    let cancelled = false
+    getMe(token).then((value) => {
+      if (!cancelled) setAccount(value)
+    }).catch((err) => {
+      if (!cancelled && err instanceof Error && err.message === 'unauthorized') {
+        saveToken(null)
+        setToken(null)
+      }
+    })
+    return () => { cancelled = true }
+  }, [token])
 
   if (!token) return <Login onToken={(t) => { saveToken(t); setToken(t) }} />
 
@@ -130,7 +148,12 @@ export default function App() {
         busy={busy}
         onSend={send}
         onNewTrip={tripId != null ? newTrip : undefined}
-        onLogout={logout} // Truyền hàm logout xuống ChatPanel
+        onLogout={logout}
+        account={account}
+        onSaveAccount={async (value) => {
+          const updated = await updateMe(token, value)
+          setAccount(updated)
+        }}
       >
         {clarify && <ClarifyCard questions={clarify.questions} busy={busy}
           onSubmit={(a) => answer(clarify.tripId, a)} />}

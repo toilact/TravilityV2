@@ -7,6 +7,8 @@ export default function Login({ onToken }: { onToken: (token: string) => void })
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [phone, setPhone] = useState('')
 
   // 2. Thêm state quản lý hiển thị/ẩn mật khẩu
   const [showPassword, setShowPassword] = useState(false)
@@ -22,7 +24,10 @@ export default function Login({ onToken }: { onToken: (token: string) => void })
     setBusy(true)
     setError(null)
     try {
-      onToken(await authRequest(mode === 'login' ? '/auth/login' : '/auth/register', email, password))
+      onToken(await authRequest(
+        mode === 'login' ? '/auth/login' : '/auth/register', email, password,
+        mode === 'register' ? { fullName, phone } : undefined,
+      ))
     } catch (err) {
       // 4. Hiển thị lỗi từ server khi gặp sự cố
       setError(err instanceof Error ? err.message : 'Có lỗi xảy ra')
@@ -42,6 +47,19 @@ export default function Login({ onToken }: { onToken: (token: string) => void })
       <form onSubmit={submit} className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-6 shadow">
         {/* 6. Dùng tiếng Việt nhất quán cho tiêu đề */}
         <h1 className="text-2xl font-semibold">Travility</h1>
+
+        {mode === 'register' && <>
+          <label className="block text-sm">
+            Họ và tên
+            <input type="text" required minLength={2} autoComplete="name" className={INPUT}
+              value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            Số điện thoại <span className="text-stone-500">(không bắt buộc)</span>
+            <input type="tel" autoComplete="tel" className={INPUT}
+              value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </label>
+        </>}
 
         {/* 1. Thêm nhãn rõ cho email */}
         <label className="block text-sm">

@@ -22,6 +22,21 @@ describe('authRequest', () => {
     ).resolves.toBe('jwt-test')
   })
 
+  it('gửi họ tên và số điện thoại khi đăng ký', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ token: 'jwt-test' }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authRequest('/auth/register', 'an@example.com', 'matkhau123', {
+      fullName: 'Nguyễn Văn An', phone: '0912345678',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      body: JSON.stringify({
+        email: 'an@example.com', password: 'matkhau123', full_name: 'Nguyễn Văn An', phone: '0912345678',
+      }),
+    }))
+  })
+
   // Trường hợp 2: Sai mật khẩu / thông tin, hiển thị lỗi lấy trực tiếp từ 'detail' của server
   it('hiển thị lỗi từ detail khi server trả về thông tin chi tiết lỗi', async () => {
     // Giả lập fetch trả về trạng thái lỗi (ok: false) và có chứa trường detail

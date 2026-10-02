@@ -2,6 +2,10 @@ import { parseSSE } from './sse'
 
 const API = import.meta.env.VITE_API_URL as string
 
+export type Account = {
+  id: number; email: string; full_name: string; phone: string | null
+}
+
 export type Place = {
   id: number; name: string; kind: string; lat: number; lon: number
   photo_url: string | null; outdoor: boolean; price: number
@@ -79,15 +83,41 @@ export function toAnswers(form: Record<string, string>): Answers {
   return Object.fromEntries(Object.entries(form).filter(([, v]) => v !== '')) as Answers
 }
 
-export async function authRequest(path: '/auth/login' | '/auth/register', email: string, password: string) {
+export async function authRequest(
+  path: '/auth/login' | '/auth/register', email: string, password: string,
+  account?: { fullName: string; phone: string },
+) {
+  const requestBody = path === '/auth/register'
+    ? { email, password, full_name: account?.fullName, phone: account?.phone || null }
+    : { email, password }
   const r = await fetch(API + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(requestBody),
   })
   const body = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Email hoặc mật khẩu không hợp lệ (mật khẩu tối thiểu 8 ký tự)')
   return body.token as string
+}
+
+export async function getMe(token: string): Promise<Account> {
+  const r = await fetch(API + '/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+  if (r.status === 401) throw new Error('unauthorized')
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Không tải được thông tin tài khoản')
+  return body as Account
+}
+
+export async function updateMe(token: string, account: { full_name: string; phone: string | null }): Promise<Account> {
+  const r = await fetch(API + '/auth/me', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(account),
+  })
+  if (r.status === 401) throw new Error('unauthorized')
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Không lưu được thông tin tài khoản')
+  return body as Account
 }
 
 async function streamSSE(token: string, path: string, body: unknown, onEvent: (e: AgentEvent) => void) {

@@ -12,8 +12,10 @@ def client(conn):
     app.dependency_overrides.clear()
 
 
-def register(client, email="an@example.com", password="matkhau123"):
-    return client.post("/auth/register", json={"email": email, "password": password})
+def register(client, email="an@example.com", password="matkhau123", full_name="Nguyễn Văn An", phone="0912345678"):
+    return client.post("/auth/register", json={
+        "email": email, "password": password, "full_name": full_name, "phone": phone,
+    })
 
 
 def test_register_and_login(client):
@@ -48,3 +50,29 @@ def test_protected_route_needs_token(client):
     token = register(client).json()["token"]
     assert client.get("/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
     assert client.get("/auth/me", headers={"Authorization": "Bearer rac"}).status_code == 401
+
+
+def test_register_saves_and_me_returns_account_details(client):
+    token = register(client, full_name="  Nguyễn   An ", phone="0912 345 678").json()["token"]
+    r = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["full_name"] == "Nguyễn An"
+    assert r.json()["phone"] == "0912345678"
+
+
+def test_user_can_update_own_account_details(client):
+    token = register(client).json()["token"]
+    r = client.put("/auth/me", headers={"Authorization": f"Bearer {token}"}, json={
+        "full_name": "Trần Minh Tùng", "phone": "0987-654-321",
+    })
+    assert r.status_code == 200
+    assert r.json()["full_name"] == "Trần Minh Tùng"
+    assert r.json()["phone"] == "0987654321"
+
+
+def test_account_update_validates_phone(client):
+    token = register(client).json()["token"]
+    r = client.put("/auth/me", headers={"Authorization": f"Bearer {token}"}, json={
+        "full_name": "Nguyễn Văn An", "phone": "123",
+    })
+    assert r.status_code == 422

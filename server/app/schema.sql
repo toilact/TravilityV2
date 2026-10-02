@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name text NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text;
 
 CREATE TABLE IF NOT EXISTS destinations (
   slug text PRIMARY KEY,
